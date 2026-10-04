@@ -48,6 +48,36 @@ export function formatDayLabel(date: Date, today: Date) {
   return date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
+const pad2 = (n: number) => n.toString().padStart(2, '0')
+
+export function toDateInput(ms: number) {
+  const d = new Date(ms)
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
+
+export function toTimeInput(ms: number) {
+  const d = new Date(ms)
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+}
+
+export function fromInputs(date: string, time: string) {
+  const [y, mo, d] = date.split('-').map(Number)
+  const [h, mi] = time.split(':').map(Number)
+  if ([y, mo, d, h, mi].some((n) => !Number.isFinite(n))) return Number.NaN
+  return new Date(y, mo - 1, d, h, mi).getTime()
+}
+
+export function latestBy(logs: Log[], pick: (log: Log) => string | null) {
+  let best: number | null = null
+  for (const log of logs) {
+    const value = pick(log)
+    if (!value) continue
+    const t = Date.parse(value)
+    if (best === null || t > best) best = t
+  }
+  return best
+}
+
 export function logEnd(log: Log, now: number) {
   return log.end_time ? Date.parse(log.end_time) : now
 }

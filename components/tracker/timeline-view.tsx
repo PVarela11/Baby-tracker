@@ -6,7 +6,7 @@ import type { Log } from '@/lib/types'
 
 const HOURS = [0, 6, 12, 18, 24]
 
-export function TimelineView({ logs }: { logs: Log[] }) {
+export function TimelineView({ logs, onEdit }: { logs: Log[]; onEdit: (log: Log) => void }) {
   const now = useNow(60_000)
   const today = startOfDay(new Date(now))
   const days = Array.from({ length: 7 }, (_, i) => addDays(today, -i))
@@ -17,7 +17,7 @@ export function TimelineView({ logs }: { logs: Log[] }) {
         <h2 id="timeline-heading" className="text-lg font-semibold">
           Multi-day timeline
         </h2>
-        <p className="text-sm text-muted-foreground">Last 7 days, midnight to midnight.</p>
+        <p className="text-sm text-muted-foreground">Last 7 days, midnight to midnight. Tap an entry to edit it.</p>
       </div>
 
       <ul aria-label="Legend" className="flex flex-wrap gap-4 text-xs text-muted-foreground">
@@ -33,7 +33,7 @@ export function TimelineView({ logs }: { logs: Log[] }) {
           ))}
         </div>
         {days.map((day) => (
-          <DayRow key={day.toISOString()} day={day} logs={logs} now={now} />
+          <DayRow key={day.toISOString()} day={day} logs={logs} now={now} onEdit={onEdit} />
         ))}
       </div>
     </section>
@@ -49,7 +49,17 @@ function Legend({ className, label }: { className: string; label: string }) {
   )
 }
 
-function DayRow({ day, logs, now }: { day: Date; logs: Log[]; now: number }) {
+function DayRow({
+  day,
+  logs,
+  now,
+  onEdit,
+}: {
+  day: Date
+  logs: Log[]
+  now: number
+  onEdit: (log: Log) => void
+}) {
   const dayStart = day.getTime()
   const dayEnd = dayStart + DAY
   const dayLogs = logsForDay(logs, day, now)
@@ -68,7 +78,7 @@ function DayRow({ day, logs, now }: { day: Date; logs: Log[]; now: number }) {
       </div>
       <div
         className="relative h-10 flex-1 overflow-hidden rounded-md bg-secondary"
-        role="img"
+        role="group"
         aria-label={`${day.toDateString()}: ${blocks.filter((b) => b.event_type === 'sleep').length} sleeps, ${
           blocks.filter((b) => b.event_type === 'feed').length
         } feeds, ${diapers.length} diapers`}
@@ -80,29 +90,41 @@ function DayRow({ day, logs, now }: { day: Date; logs: Log[]; now: number }) {
           const start = pct(Date.parse(log.start_time))
           const end = pct(logEnd(log, now))
           const isSleep = log.event_type === 'sleep'
+          const label = `Edit ${isSleep ? 'sleep' : 'feed'} at ${formatClock(log.start_time)}, ${formatDuration(
+            logEnd(log, now) - Date.parse(log.start_time),
+          )}`
           return (
-            <span
+            <button
               key={log.id}
-              title={`${isSleep ? 'Sleep' : 'Feed'} ${formatClock(log.start_time)} · ${formatDuration(
-                logEnd(log, now) - Date.parse(log.start_time),
-              )}`}
+              type="button"
+              onClick={() => onEdit(log)}
+              title={label}
+              aria-label={label}
               className={
                 isSleep
-                  ? 'absolute top-1 bottom-1 rounded-sm bg-sleep/80'
-                  : 'absolute top-2.5 bottom-2.5 rounded-sm bg-feed'
+                  ? 'absolute top-1 bottom-1 rounded-sm bg-sleep/80 hover:bg-sleep focus-visible:outline-2 focus-visible:outline-foreground'
+                  : 'absolute top-2.5 bottom-2.5 z-[1] rounded-sm bg-feed hover:brightness-110 focus-visible:outline-2 focus-visible:outline-foreground'
               }
-              style={{ left: `${start}%`, width: `max(${end - start}%, 3px)` }}
+              style={{ left: `${start}%`, width: `max(${end - start}%, 4px)` }}
             />
           )
         })}
-        {diapers.map((log) => (
-          <span
-            key={log.id}
-            title={`Diaper (${log.diaper_type}) ${formatClock(log.start_time)}`}
-            className="absolute bottom-0 h-2 w-1 -translate-x-1/2 rounded-full bg-diaper"
-            style={{ left: `${pct(Date.parse(log.start_time))}%` }}
-          />
-        ))}
+        {diapers.map((log) => {
+          const label = `Edit ${log.diaper_type ?? ''} diaper at ${formatClock(log.start_time)}`
+          return (
+            <button
+              key={log.id}
+              type="button"
+              onClick={() => onEdit(log)}
+              title={label}
+              aria-label={label}
+              className="absolute bottom-0 z-[2] flex h-3 w-3 -translate-x-1/2 items-end justify-center focus-visible:outline-2 focus-visible:outline-foreground"
+              style={{ left: `${pct(Date.parse(log.start_time))}%` }}
+            >
+              <span className="h-2 w-1 rounded-full bg-diaper" aria-hidden />
+            </button>
+          )
+        })}
         {nowPct !== null && (
           <span className="absolute inset-y-0 w-0.5 bg-foreground/70" style={{ left: `${nowPct}%` }} aria-hidden />
         )}

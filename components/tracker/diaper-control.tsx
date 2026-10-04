@@ -5,6 +5,7 @@ import { Check, Droplets } from 'lucide-react'
 import type { LogsApi } from '@/hooks/use-logs'
 import type { DiaperType } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { PastLogButton } from './past-log-button'
 
 const OPTIONS: { value: DiaperType; label: string }[] = [
   { value: 'wet', label: 'Wet' },
@@ -12,7 +13,7 @@ const OPTIONS: { value: DiaperType; label: string }[] = [
   { value: 'both', label: 'Both' },
 ]
 
-export function DiaperControl({ api }: { api: LogsApi }) {
+export function DiaperControl({ api, onLogPast }: { api: LogsApi; onLogPast: () => void }) {
   const [saved, setSaved] = useState<DiaperType | null>(null)
 
   useEffect(() => {
@@ -56,6 +57,7 @@ export function DiaperControl({ api }: { api: LogsApi }) {
           </button>
         ))}
       </div>
+      <PastLogButton label="Log past change" onClick={onLogPast} />
       <p aria-live="polite" className="sr-only">
         {saved ? `${saved} diaper logged` : ''}
       </p>

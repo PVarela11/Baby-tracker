@@ -7,8 +7,9 @@ import type { LogsApi } from '@/hooks/use-logs'
 import { formatClock, formatStopwatch } from '@/lib/time'
 import type { Log } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { PastLogButton } from './past-log-button'
 
-export function SleepControl({ logs, api }: { logs: Log[]; api: LogsApi }) {
+export function SleepControl({ logs, api, onLogPast }: { logs: Log[]; api: LogsApi; onLogPast: () => void }) {
   const running = logs.find((l) => l.event_type === 'sleep' && !l.end_time)
   const [busy, setBusy] = useState(false)
 
@@ -56,6 +57,7 @@ export function SleepControl({ logs, api }: { logs: Log[]; api: LogsApi }) {
         {running ? <Sun className="size-6" aria-hidden /> : <Moon className="size-6" aria-hidden />}
         {running ? <SleepStopwatch start={running.start_time} /> : 'Fell asleep'}
       </button>
+      <PastLogButton label="Log past sleep" onClick={onLogPast} />
     </section>
   )
 }

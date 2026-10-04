@@ -1,29 +1,28 @@
 'use client'
 
 import { useState } from 'react'
-import { Milk, Pause, Play, PencilLine } from 'lucide-react'
+import { Milk, Pause, Play } from 'lucide-react'
 import { useNow } from '@/hooks/use-now'
 import type { LogsApi } from '@/hooks/use-logs'
-import { MINUTE, formatStopwatch } from '@/lib/time'
+import { formatStopwatch } from '@/lib/time'
 import type { BreastSide, Log } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { PastLogButton } from './past-log-button'
 
 const SIDES: { value: BreastSide; label: string }[] = [
   { value: 'left', label: 'Left' },
   { value: 'right', label: 'Right' },
-  { value: 'both', label: 'Both' },
 ]
 
-export function FeedControl({ logs, api }: { logs: Log[]; api: LogsApi }) {
+export function FeedControl({ logs, api, onLogPast }: { logs: Log[]; api: LogsApi; onLogPast: () => void }) {
   const running = logs.find((l) => l.event_type === 'feed' && !l.end_time)
   const lastSide = logs.find((l) => l.event_type === 'feed' && l.end_time)?.breast_side
   const suggested: BreastSide = lastSide === 'left' ? 'right' : 'left'
   const [side, setSide] = useState<BreastSide | null>(null)
-  const [manualOpen, setManualOpen] = useState(false)
-  const [manualMinutes, setManualMinutes] = useState('15')
   const [busy, setBusy] = useState(false)
 
-  const selectedSide = running?.breast_side ?? side ?? suggested
+  const runningSide = running?.breast_side === 'right' ? 'right' : running ? 'left' : null
+  const selectedSide = runningSide ?? side ?? suggested
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true)
@@ -60,25 +59,6 @@ export function FeedControl({ logs, api }: { logs: Log[]; api: LogsApi }) {
     }
   }
 
-  function saveManual(e: React.FormEvent) {
-    e.preventDefault()
-    const minutes = Math.round(Number(manualMinutes))
-    if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 180) return
-    const end = Date.now()
-    run(async () => {
-      await api.createLog({
-        event_type: 'feed',
-        start_time: new Date(end - minutes * MINUTE).toISOString(),
-        end_time: new Date(end).toISOString(),
-        breast_side: selectedSide,
-        diaper_type: null,
-        notes: null,
-      })
-      setManualOpen(false)
-      setSide(null)
-    })
-  }
-
   return (
     <section aria-labelledby="feed-heading" className="flex flex-col gap-3 rounded-3xl border bg-card p-4">
       <div className="flex items-center justify-between">
@@ -93,7 +73,7 @@ export function FeedControl({ logs, api }: { logs: Log[]; api: LogsApi }) {
         )}
       </div>
 
-      <div role="radiogroup" aria-label="Breast side" className="grid grid-cols-3 gap-2">
+      <div role="radiogroup" aria-label="Breast side" className="grid grid-cols-2 gap-2">
         {SIDES.map((s) => {
           const checked = selectedSide === s.value
           return (
@@ -129,42 +109,7 @@ export function FeedControl({ logs, api }: { logs: Log[]; api: LogsApi }) {
         {running ? <FeedStopwatch start={running.start_time} /> : 'Start feeding'}
       </button>
 
-      {!running && (
-        <>
-          <button
-            type="button"
-            onClick={() => setManualOpen((o) => !o)}
-            aria-expanded={manualOpen}
-            className="flex items-center justify-center gap-2 py-1 text-sm text-muted-foreground"
-          >
-            <PencilLine className="size-4" aria-hidden />
-            Log a past feed manually
-          </button>
-          {manualOpen && (
-            <form onSubmit={saveManual} className="flex items-end gap-2">
-              <label className="flex flex-1 flex-col gap-1 text-xs text-muted-foreground">
-                Duration (minutes, ended now)
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  max={180}
-                  value={manualMinutes}
-                  onChange={(e) => setManualMinutes(e.target.value)}
-                  className="h-12 rounded-xl border bg-secondary px-3 font-mono text-base text-foreground"
-                />
-              </label>
-              <button
-                type="submit"
-                disabled={busy}
-                className="h-12 rounded-xl bg-feed px-5 font-semibold text-background disabled:opacity-60"
-              >
-                Save
-              </button>
-            </form>
-          )}
-        </>
-      )}
+      <PastLogButton label="Log past feed" onClick={onLogPast} />
     </section>
   )
 }

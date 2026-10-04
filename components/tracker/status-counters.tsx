@@ -2,21 +2,17 @@
 
 import { Baby, Droplets, Milk, Moon, Sun } from 'lucide-react'
 import { useNow } from '@/hooks/use-now'
-import { formatDuration } from '@/lib/time'
+import { formatDuration, latestBy } from '@/lib/time'
 import type { Log } from '@/lib/types'
 import { cn } from '@/lib/utils'
-
-function latest(logs: Log[], type: Log['event_type']) {
-  return logs.find((l) => l.event_type === type)
-}
 
 export function StatusCounters({ logs }: { logs: Log[] }) {
   const now = useNow(15_000)
   const runningSleep = logs.find((l) => l.event_type === 'sleep' && !l.end_time)
   const runningFeed = logs.find((l) => l.event_type === 'feed' && !l.end_time)
-  const lastFeed = latest(logs, 'feed')
-  const lastDiaper = latest(logs, 'diaper')
-  const lastWake = logs.find((l) => l.event_type === 'sleep' && l.end_time)
+  const lastFeedEnd = latestBy(logs, (l) => (l.event_type === 'feed' ? l.end_time : null))
+  const lastDiaperAt = latestBy(logs, (l) => (l.event_type === 'diaper' ? (l.end_time ?? l.start_time) : null))
+  const lastWakeAt = latestBy(logs, (l) => (l.event_type === 'sleep' ? l.end_time : null))
 
   return (
     <section aria-label="Time since last events" className="flex flex-col gap-3">
@@ -45,8 +41,8 @@ export function StatusCounters({ logs }: { logs: Log[] }) {
           value={
             runningFeed
               ? formatDuration(now - Date.parse(runningFeed.start_time))
-              : lastFeed
-                ? `${formatDuration(now - Date.parse(lastFeed.start_time))} ago`
+              : lastFeedEnd !== null
+                ? `${formatDuration(now - lastFeedEnd)} ago`
                 : '—'
           }
           tone="feed"
@@ -58,8 +54,8 @@ export function StatusCounters({ logs }: { logs: Log[] }) {
           value={
             runningSleep
               ? formatDuration(now - Date.parse(runningSleep.start_time))
-              : lastWake?.end_time
-                ? formatDuration(now - Date.parse(lastWake.end_time))
+              : lastWakeAt !== null
+                ? formatDuration(now - lastWakeAt)
                 : '—'
           }
           tone="sleep"
@@ -68,7 +64,7 @@ export function StatusCounters({ logs }: { logs: Log[] }) {
         <Chip
           icon={<Droplets className="size-4" aria-hidden />}
           label="Last diaper"
-          value={lastDiaper ? `${formatDuration(now - Date.parse(lastDiaper.start_time))} ago` : '—'}
+          value={lastDiaperAt !== null ? `${formatDuration(now - lastDiaperAt)} ago` : '—'}
           tone="diaper"
         />
       </div>

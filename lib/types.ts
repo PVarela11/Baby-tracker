@@ -1,5 +1,5 @@
 export type EventType = 'feed' | 'sleep' | 'diaper'
-export type BreastSide = 'left' | 'right' | 'both'
+export type BreastSide = 'left' | 'right'
 export type DiaperType = 'wet' | 'dirty' | 'both'
 
 export interface Log {
@@ -14,10 +14,12 @@ export interface Log {
 }
 
 export type NewLog = Omit<Log, 'id' | 'created_at'>
-export type LogPatch = Partial<Pick<Log, 'start_time' | 'end_time' | 'breast_side' | 'diaper_type' | 'notes'>>
+export type LogPatch = Partial<
+  Pick<Log, 'event_type' | 'start_time' | 'end_time' | 'breast_side' | 'diaper_type' | 'notes'>
+>
 
 const EVENT_TYPES: EventType[] = ['feed', 'sleep', 'diaper']
-const SIDES: BreastSide[] = ['left', 'right', 'both']
+const SIDES: BreastSide[] = ['left', 'right']
 const DIAPERS: DiaperType[] = ['wet', 'dirty', 'both']
 
 function isIsoDate(value: unknown): value is string {
@@ -68,6 +70,10 @@ export function parseLogPatch(input: unknown): LogPatch {
   if (!input || typeof input !== 'object') throw new Error('Invalid body')
   const body = input as Record<string, unknown>
   const patch: LogPatch = {}
+  if (body.event_type !== undefined) {
+    if (!EVENT_TYPES.includes(body.event_type as EventType)) throw new Error('Invalid event_type')
+    patch.event_type = body.event_type as EventType
+  }
   const start = optionalDate(body.start_time)
   if (start) patch.start_time = start
   const end = optionalDate(body.end_time)
@@ -78,5 +84,8 @@ export function parseLogPatch(input: unknown): LogPatch {
   if (diaper !== undefined) patch.diaper_type = diaper
   const notes = optionalNotes(body.notes)
   if (notes !== undefined) patch.notes = notes
+  if (patch.start_time && patch.end_time && Date.parse(patch.end_time) < Date.parse(patch.start_time)) {
+    throw new Error('end_time before start_time')
+  }
   return patch
 }

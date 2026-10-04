@@ -8,6 +8,7 @@ import { DateNav } from './date-nav'
 import { DayLog } from './day-log'
 import { DiaperControl } from './diaper-control'
 import { FeedControl } from './feed-control'
+import { LogDialog, type LogDialogTarget } from './log-dialog'
 import { SettingsDialog } from './settings-dialog'
 import { SleepControl } from './sleep-control'
 import { StatusCounters } from './status-counters'
@@ -20,6 +21,9 @@ export function TrackerApp() {
   const [tab, setTab] = useState<Tab>('today')
   const [date, setDate] = useState(() => new Date())
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [logDialog, setLogDialog] = useState<LogDialogTarget | null>(null)
+
+  const editLog = (log: LogDialogTarget & { mode: 'edit' }) => setLogDialog(log)
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col">
@@ -46,16 +50,24 @@ export function TrackerApp() {
 
         {tab === 'today' ? (
           <>
-            <FeedControl logs={api.logs} api={api} />
-            <SleepControl logs={api.logs} api={api} />
-            <DiaperControl api={api} />
+            <FeedControl
+              logs={api.logs}
+              api={api}
+              onLogPast={() => setLogDialog({ mode: 'create', type: 'feed' })}
+            />
+            <SleepControl
+              logs={api.logs}
+              api={api}
+              onLogPast={() => setLogDialog({ mode: 'create', type: 'sleep' })}
+            />
+            <DiaperControl api={api} onLogPast={() => setLogDialog({ mode: 'create', type: 'diaper' })} />
             <div className="mt-2 flex flex-col gap-4">
               <DateNav date={date} onChange={setDate} />
-              <DayLog logs={api.logs} date={date} api={api} />
+              <DayLog logs={api.logs} date={date} onEdit={(log) => editLog({ mode: 'edit', log })} />
             </div>
           </>
         ) : (
-          <TimelineView logs={api.logs} />
+          <TimelineView logs={api.logs} onEdit={(log) => editLog({ mode: 'edit', log })} />
         )}
       </main>
 
@@ -74,6 +86,7 @@ export function TrackerApp() {
       </nav>
 
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} api={api} />
+      {logDialog && <LogDialog target={logDialog} api={api} onClose={() => setLogDialog(null)} />}
     </div>
   )
 }

@@ -1,13 +1,12 @@
 'use client'
 
-import { Droplets, Milk, Moon, Trash2 } from 'lucide-react'
+import { Droplets, Milk, Moon, Pencil } from 'lucide-react'
 import { useNow } from '@/hooks/use-now'
-import type { LogsApi } from '@/hooks/use-logs'
 import { DAY, formatClock, formatDuration, logEnd, logsForDay, overlapMs, startOfDay } from '@/lib/time'
 import type { Log } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
-export function DayLog({ logs, date, api }: { logs: Log[]; date: Date; api: LogsApi }) {
+export function DayLog({ logs, date, onEdit }: { logs: Log[]; date: Date; onEdit: (log: Log) => void }) {
   const now = useNow(30_000)
   const dayStart = startOfDay(date).getTime()
   const dayEnd = dayStart + DAY
@@ -36,7 +35,7 @@ export function DayLog({ logs, date, api }: { logs: Log[]; date: Date; api: Logs
       ) : (
         <ul className="flex flex-col divide-y rounded-2xl border bg-card">
           {dayLogs.map((log) => (
-            <LogRow key={log.id} log={log} now={now} onDelete={() => api.deleteLog(log.id)} />
+            <LogRow key={log.id} log={log} now={now} onEdit={() => onEdit(log)} />
           ))}
         </ul>
       )}
@@ -60,7 +59,7 @@ const META = {
   diaper: { icon: Droplets, tone: 'text-diaper bg-diaper/15', label: 'Diaper' },
 } as const
 
-function LogRow({ log, now, onDelete }: { log: Log; now: number; onDelete: () => void }) {
+function LogRow({ log, now, onEdit }: { log: Log; now: number; onEdit: () => void }) {
   const meta = META[log.event_type]
   const Icon = meta.icon
   const running = log.event_type !== 'diaper' && !log.end_time
@@ -82,6 +81,7 @@ function LogRow({ log, now, onDelete }: { log: Log; now: number; onDelete: () =>
           {running && <span className="ml-2 text-xs text-muted-foreground">in progress</span>}
         </span>
         <span className="truncate text-xs capitalize text-muted-foreground">{detail}</span>
+        {log.notes && <span className="truncate text-xs text-muted-foreground">{log.notes}</span>}
       </div>
       <span className="font-mono text-sm tabular-nums text-muted-foreground">
         {formatClock(log.start_time)}
@@ -89,11 +89,11 @@ function LogRow({ log, now, onDelete }: { log: Log; now: number; onDelete: () =>
       </span>
       <button
         type="button"
-        onClick={onDelete}
-        aria-label={`Delete ${meta.label.toLowerCase()} at ${formatClock(log.start_time)}`}
-        className="flex size-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground hover:bg-secondary hover:text-destructive"
+        onClick={onEdit}
+        aria-label={`Edit ${meta.label.toLowerCase()} at ${formatClock(log.start_time)}`}
+        className="flex size-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground hover:bg-secondary hover:text-foreground"
       >
-        <Trash2 className="size-4" aria-hidden />
+        <Pencil className="size-4" aria-hidden />
       </button>
     </li>
   )

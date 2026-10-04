@@ -70,7 +70,7 @@ export function generateSampleLogs(days = 7, now = new Date()): NewLog[] {
       const start = at(day, h, m) + jitter(15)
       const end = start + (10 + Math.round(Math.random() * 15)) * MINUTE
       if (end > nowMs) continue
-      const side = Math.random() < 0.2 ? 'both' : sides[sideIndex++ % 2]
+      const side = sides[sideIndex++ % 2]
       logs.push({
         event_type: 'feed',
         start_time: new Date(start).toISOString(),
