@@ -1,6 +1,7 @@
 export type EventType = 'feed' | 'sleep' | 'diaper'
 export type BreastSide = 'left' | 'right'
 export type DiaperType = 'wet' | 'dirty' | 'both'
+export type Gender = 'male' | 'female' | 'other'
 
 export interface Log {
   id: string
@@ -15,6 +16,36 @@ export interface Log {
 
 export type NewLog = Omit<Log, 'id' | 'created_at'>
 export type LogPatch = Partial<Pick<Log, 'start_time' | 'end_time' | 'breast_side' | 'diaper_type' | 'notes'>>
+
+export interface VitaminLog {
+  id: string
+  given_date: string
+  given_time: string
+  notes: string | null
+  created_at: string
+}
+
+export type NewVitaminLog = Omit<VitaminLog, 'id' | 'created_at'>
+export type VitaminLogPatch = Partial<Pick<VitaminLog, 'given_date' | 'given_time' | 'notes'>>
+
+export interface GrowthLog {
+  id: string
+  log_date: string
+  weight_kg: number | null
+  height_cm: number | null
+  head_circumference_cm: number | null
+  notes: string | null
+  created_at: string
+}
+
+export type NewGrowthLog = Omit<GrowthLog, 'id' | 'created_at'>
+export type GrowthLogPatch = Partial<Pick<GrowthLog, 'log_date' | 'weight_kg' | 'height_cm' | 'head_circumference_cm' | 'notes'>>
+
+export interface BabyProfile {
+  name: string | null
+  date_of_birth: string | null
+  gender: Gender | null
+}
 
 const EVENT_TYPES: EventType[] = ['feed', 'sleep', 'diaper']
 const SIDES: BreastSide[] = ['left', 'right']
@@ -79,4 +110,96 @@ export function parseLogPatch(input: unknown): LogPatch {
   const notes = optionalNotes(body.notes)
   if (notes !== undefined) patch.notes = notes
   return patch
+}
+
+function optionalNumber(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const num = Number.parseFloat(value)
+    if (Number.isFinite(num)) return num
+  }
+  throw new Error('Invalid number')
+}
+
+export function parseNewVitaminLog(input: unknown): NewVitaminLog {
+  if (!input || typeof input !== 'object') throw new Error('Invalid body')
+  const body = input as Record<string, unknown>
+  if (!isIsoDate(body.given_date)) throw new Error('Invalid given_date')
+  if (!isIsoDate(body.given_time)) throw new Error('Invalid given_time')
+  return {
+    given_date: new Date(body.given_date).toISOString().split('T')[0],
+    given_time: new Date(body.given_time).toISOString(),
+    notes: optionalNotes(body.notes) ?? null,
+  }
+}
+
+export function parseVitaminLogPatch(input: unknown): VitaminLogPatch {
+  if (!input || typeof input !== 'object') throw new Error('Invalid body')
+  const body = input as Record<string, unknown>
+  const patch: VitaminLogPatch = {}
+  if (body.given_date !== undefined) {
+    if (isIsoDate(body.given_date)) {
+      patch.given_date = new Date(body.given_date).toISOString().split('T')[0]
+    } else {
+      throw new Error('Invalid given_date')
+    }
+  }
+  if (body.given_time !== undefined) {
+    if (isIsoDate(body.given_time)) {
+      patch.given_time = new Date(body.given_time).toISOString()
+    } else {
+      throw new Error('Invalid given_time')
+    }
+  }
+  const notes = optionalNotes(body.notes)
+  if (notes !== undefined) patch.notes = notes
+  return patch
+}
+
+export function parseNewGrowthLog(input: unknown): NewGrowthLog {
+  if (!input || typeof input !== 'object') throw new Error('Invalid body')
+  const body = input as Record<string, unknown>
+  if (!isIsoDate(body.log_date)) throw new Error('Invalid log_date')
+  return {
+    log_date: new Date(body.log_date).toISOString().split('T')[0],
+    weight_kg: optionalNumber(body.weight_kg) ?? null,
+    height_cm: optionalNumber(body.height_cm) ?? null,
+    head_circumference_cm: optionalNumber(body.head_circumference_cm) ?? null,
+    notes: optionalNotes(body.notes) ?? null,
+  }
+}
+
+export function parseGrowthLogPatch(input: unknown): GrowthLogPatch {
+  if (!input || typeof input !== 'object') throw new Error('Invalid body')
+  const body = input as Record<string, unknown>
+  const patch: GrowthLogPatch = {}
+  if (body.log_date !== undefined) {
+    if (isIsoDate(body.log_date)) {
+      patch.log_date = new Date(body.log_date).toISOString().split('T')[0]
+    } else {
+      throw new Error('Invalid log_date')
+    }
+  }
+  const weight = optionalNumber(body.weight_kg)
+  if (weight !== undefined) patch.weight_kg = weight
+  const height = optionalNumber(body.height_cm)
+  if (height !== undefined) patch.height_cm = height
+  const head = optionalNumber(body.head_circumference_cm)
+  if (head !== undefined) patch.head_circumference_cm = head
+  const notes = optionalNotes(body.notes)
+  if (notes !== undefined) patch.notes = notes
+  return patch
+}
+
+export function parseBabyProfile(input: unknown): BabyProfile {
+  if (!input || typeof input !== 'object') throw new Error('Invalid body')
+  const body = input as Record<string, unknown>
+  const GENDERS: Gender[] = ['male', 'female', 'other']
+  return {
+    name: typeof body.name === 'string' ? body.name.slice(0, 100) : null,
+    date_of_birth: isIsoDate(body.date_of_birth) ? new Date(body.date_of_birth).toISOString() : null,
+    gender: optionalEnum(body.gender, GENDERS) ?? null,
+  }
 }
