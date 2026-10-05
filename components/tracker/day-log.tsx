@@ -1,10 +1,11 @@
 'use client'
 
-import { Droplets, Milk, Moon, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { Droplets, Milk, Moon, Trash2, Pencil, X } from 'lucide-react'
 import { useNow } from '@/hooks/use-now'
 import type { LogsApi } from '@/hooks/use-logs'
 import { DAY, formatClock, formatDuration, logEnd, logsForDay, overlapMs, startOfDay } from '@/lib/time'
-import type { Log } from '@/lib/types'
+import type { BreastSide, DiaperType, Log } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 export function DayLog({ logs, date, api }: { logs: Log[]; date: Date; api: LogsApi }) {
@@ -21,6 +22,51 @@ export function DayLog({ logs, date, api }: { logs: Log[]; date: Date; api: Logs
   const wet = diapers.filter((l) => l.diaper_type !== 'dirty').length
   const dirty = diapers.filter((l) => l.diaper_type !== 'wet').length
 
+  const [editingLog, setEditingLog] = useState<Log | null>(null)
+  const [editDate, setEditDate] = useState('')
+  const [editStartTime, setEditStartTime] = useState('')
+  const [editEndTime, setEditEndTime] = useState('')
+  const [editBreastSide, setEditBreastSide] = useState<BreastSide | null>(null)
+  const [editDiaperType, setEditDiaperType] = useState<DiaperType | null>(null)
+  const [editNotes, setEditNotes] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  function openEdit(log: Log) {
+    setEditingLog(log)
+    const startDate = new Date(log.start_time)
+    setEditDate(startDate.toISOString().split('T')[0])
+    setEditStartTime(startDate.toTimeString().slice(0, 5))
+    setEditEndTime(log.end_time ? new Date(log.end_time).toTimeString().slice(0, 5) : '')
+    setEditBreastSide(log.breast_side)
+    setEditDiaperType(log.diaper_type)
+    setEditNotes(log.notes || '')
+  }
+
+  function saveEdit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editingLog) return
+
+    const startDateTime = new Date(`${editDate}T${editStartTime}`)
+    const endDateTime = editEndTime ? new Date(`${editDate}T${editEndTime}`) : null
+
+    if (isNaN(startDateTime.getTime()) || (endDateTime && isNaN(endDateTime.getTime()))) return
+    if (endDateTime && endDateTime <= startDateTime) return
+
+    setBusy(true)
+    api
+      .updateLog(editingLog.id, {
+        start_time: startDateTime.toISOString(),
+        end_time: endDateTime ? endDateTime.toISOString() : null,
+        breast_side: editBreastSide,
+        diaper_type: editDiaperType,
+        notes: editNotes || null,
+      })
+      .then(() => {
+        setEditingLog(null)
+        setBusy(false)
+      })
+  }
+
   return (
     <section aria-label="Daily summary and entries" className="flex flex-col gap-4">
       <dl className="grid grid-cols-3 gap-2">
@@ -36,9 +82,128 @@ export function DayLog({ logs, date, api }: { logs: Log[]; date: Date; api: Logs
       ) : (
         <ul className="flex flex-col divide-y rounded-2xl border bg-card">
           {dayLogs.map((log) => (
-            <LogRow key={log.id} log={log} now={now} onDelete={() => api.deleteLog(log.id)} />
+            <LogRow key={log.id} log={log} now={now} onEdit={() => openEdit(log)} onDelete={() => api.deleteLog(log.id)} />
           ))}
         </ul>
+      )}
+
+      {editingLog && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center">
+          <div className="w-full max-w-md rounded-t-3xl border bg-card p-5 sm:rounded-3xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Edit {META[editingLog.event_type].label}</h3>
+              <button
+                type="button"
+                onClick={() => setEditingLog(null)}
+                className="flex size-10 items-center justify-center rounded-xl bg-secondary"
+              >
+                <X className="size-5" aria-hidden />
+              </button>
+            </div>
+            <form onSubmit={saveEdit} className="flex flex-col gap-4">
+              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                Date
+                <input
+                  type="date"
+                  value={editDate}
+                  onChange={(e) => setEditDate(e.target.value)}
+                  className="h-12 rounded-xl border bg-secondary px-3 text-base text-foreground"
+                  required
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                Start Time
+                <input
+                  type="time"
+                  value={editStartTime}
+                  onChange={(e) => setEditStartTime(e.target.value)}
+                  className="h-12 rounded-xl border bg-secondary px-3 font-mono text-base text-foreground"
+                  required
+                />
+              </label>
+              {editingLog.event_type !== 'diaper' && (
+                <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                  End Time (optional)
+                  <input
+                    type="time"
+                    value={editEndTime}
+                    onChange={(e) => setEditEndTime(e.target.value)}
+                    className="h-12 rounded-xl border bg-secondary px-3 font-mono text-base text-foreground"
+                  />
+                </label>
+              )}
+              {editingLog.event_type === 'feed' && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">Side</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['left', 'right'] as BreastSide[]).map((side) => (
+                      <button
+                        key={side}
+                        type="button"
+                        onClick={() => setEditBreastSide(side)}
+                        className={cn(
+                          'h-12 rounded-xl border text-base font-medium transition-colors',
+                          editBreastSide === side
+                            ? 'border-feed bg-feed/20 text-feed'
+                            : 'bg-secondary text-secondary-foreground',
+                        )}
+                      >
+                        {side.charAt(0).toUpperCase() + side.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {editingLog.event_type === 'diaper' && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">Type</span>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['wet', 'dirty', 'both'] as DiaperType[]).map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setEditDiaperType(type)}
+                        className={cn(
+                          'h-12 rounded-xl border text-base font-medium transition-colors',
+                          editDiaperType === type
+                            ? 'border-diaper bg-diaper/20 text-diaper'
+                            : 'bg-secondary text-secondary-foreground',
+                        )}
+                      >
+                        {type.charAt(0).toUpperCase() + type.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                Notes (optional)
+                <textarea
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  className="h-20 rounded-xl border bg-secondary px-3 text-sm text-foreground resize-none"
+                  maxLength={1000}
+                />
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="flex-1 h-12 rounded-xl bg-feed px-5 font-semibold text-background disabled:opacity-60"
+                >
+                  {busy ? 'Saving...' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => api.deleteLog(editingLog.id).then(() => setEditingLog(null))}
+                  className="h-12 rounded-xl bg-destructive/15 px-5 font-semibold text-destructive"
+                >
+                  Delete
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </section>
   )
@@ -60,7 +225,7 @@ const META = {
   diaper: { icon: Droplets, tone: 'text-diaper bg-diaper/15', label: 'Diaper' },
 } as const
 
-function LogRow({ log, now, onDelete }: { log: Log; now: number; onDelete: () => void }) {
+function LogRow({ log, now, onEdit, onDelete }: { log: Log; now: number; onEdit: () => void; onDelete: () => void }) {
   const meta = META[log.event_type]
   const Icon = meta.icon
   const running = log.event_type !== 'diaper' && !log.end_time
@@ -87,6 +252,14 @@ function LogRow({ log, now, onDelete }: { log: Log; now: number; onDelete: () =>
         {formatClock(log.start_time)}
         {log.end_time && log.event_type !== 'diaper' && `–${formatClock(log.end_time)}`}
       </span>
+      <button
+        type="button"
+        onClick={onEdit}
+        aria-label={`Edit ${meta.label.toLowerCase()} at ${formatClock(log.start_time)}`}
+        className="flex size-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground hover:bg-secondary"
+      >
+        <Pencil className="size-4" aria-hidden />
+      </button>
       <button
         type="button"
         onClick={onDelete}

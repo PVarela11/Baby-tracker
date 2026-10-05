@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 
 const THEME_KEY = 'baby-tracker:theme'
 
-export function SettingsDialog({ open, onClose, api }: { open: boolean; onClose: () => void; api: LogsApi }) {
+export function SettingsDialog({ open, onClose, api, version }: { open: boolean; onClose: () => void; api: LogsApi; version: string }) {
   const ref = useRef<HTMLDialogElement>(null)
   const [oled, setOled] = useState(false)
   const [confirmClear, setConfirmClear] = useState(false)
@@ -88,6 +88,8 @@ export function SettingsDialog({ open, onClose, api }: { open: boolean; onClose:
             <X className="size-5" aria-hidden />
           </button>
         </div>
+
+        <p className="text-xs text-muted-foreground">{version}</p>
 
         <div className="flex items-center gap-3 rounded-2xl bg-secondary p-3 text-sm">
           {api.backend === 'cloud' ? (

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Milk, Pause, Play, PencilLine } from 'lucide-react'
+import { Milk, Pause, Play, PencilLine, X } from 'lucide-react'
 import { useNow } from '@/hooks/use-now'
 import type { LogsApi } from '@/hooks/use-logs'
 import { MINUTE, formatStopwatch } from '@/lib/time'
@@ -11,17 +11,18 @@ import { cn } from '@/lib/utils'
 const SIDES: { value: BreastSide; label: string }[] = [
   { value: 'left', label: 'Left' },
   { value: 'right', label: 'Right' },
-  { value: 'both', label: 'Both' },
 ]
 
 export function FeedControl({ logs, api }: { logs: Log[]; api: LogsApi }) {
   const running = logs.find((l) => l.event_type === 'feed' && !l.end_time)
   const lastSide = logs.find((l) => l.event_type === 'feed' && l.end_time)?.breast_side
   const suggested: BreastSide = lastSide === 'left' ? 'right' : 'left'
-  const [side, setSide] = useState<BreastSide | null>(null)
+  const [side, setSide] = useState<BreastSide>(suggested)
   const [manualOpen, setManualOpen] = useState(false)
-  const [manualMinutes, setManualMinutes] = useState('15')
   const [busy, setBusy] = useState(false)
+  const [pastDate, setPastDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [pastStartTime, setPastStartTime] = useState('')
+  const [pastEndTime, setPastEndTime] = useState('')
 
   const selectedSide = running?.breast_side ?? side ?? suggested
 
@@ -56,27 +57,41 @@ export function FeedControl({ logs, api }: { logs: Log[]; api: LogsApi }) {
           notes: null,
         }),
       )
-      setSide(null)
+      setSide(suggested)
     }
   }
 
-  function saveManual(e: React.FormEvent) {
+  function savePastLog(e: React.FormEvent) {
     e.preventDefault()
-    const minutes = Math.round(Number(manualMinutes))
-    if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 180) return
-    const end = Date.now()
+    if (!pastDate || !pastStartTime) return
+
+    const startDateTime = new Date(`${pastDate}T${pastStartTime}`)
+    const endDateTime = pastEndTime ? new Date(`${pastDate}T${pastEndTime}`) : null
+
+    if (isNaN(startDateTime.getTime()) || (endDateTime && isNaN(endDateTime.getTime()))) return
+    if (endDateTime && endDateTime <= startDateTime) return
+
     run(async () => {
       await api.createLog({
         event_type: 'feed',
-        start_time: new Date(end - minutes * MINUTE).toISOString(),
-        end_time: new Date(end).toISOString(),
+        start_time: startDateTime.toISOString(),
+        end_time: endDateTime ? endDateTime.toISOString() : null,
         breast_side: selectedSide,
         diaper_type: null,
         notes: null,
       })
       setManualOpen(false)
-      setSide(null)
+      setPastDate(new Date().toISOString().split('T')[0])
+      setPastStartTime('')
+      setPastEndTime('')
     })
+  }
+
+  function openPastLogModal() {
+    setPastDate(new Date().toISOString().split('T')[0])
+    setPastStartTime('')
+    setPastEndTime('')
+    setManualOpen(true)
   }
 
   return (
@@ -93,7 +108,7 @@ export function FeedControl({ logs, api }: { logs: Log[]; api: LogsApi }) {
         )}
       </div>
 
-      <div role="radiogroup" aria-label="Breast side" className="grid grid-cols-3 gap-2">
+      <div role="radiogroup" aria-label="Breast side" className="grid grid-cols-2 gap-2">
         {SIDES.map((s) => {
           const checked = selectedSide === s.value
           return (
@@ -133,24 +148,55 @@ export function FeedControl({ logs, api }: { logs: Log[]; api: LogsApi }) {
         <>
           <button
             type="button"
-            onClick={() => setManualOpen((o) => !o)}
-            aria-expanded={manualOpen}
+            onClick={openPastLogModal}
             className="flex items-center justify-center gap-2 py-1 text-sm text-muted-foreground"
           >
             <PencilLine className="size-4" aria-hidden />
             Log a past feed manually
           </button>
-          {manualOpen && (
-            <form onSubmit={saveManual} className="flex items-end gap-2">
-              <label className="flex flex-1 flex-col gap-1 text-xs text-muted-foreground">
-                Duration (minutes, ended now)
+        </>
+      )}
+
+      {manualOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center">
+          <div className="w-full max-w-md rounded-t-3xl border bg-card p-5 sm:rounded-3xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Log Past Feed</h3>
+              <button
+                type="button"
+                onClick={() => setManualOpen(false)}
+                className="flex size-10 items-center justify-center rounded-xl bg-secondary"
+              >
+                <X className="size-5" aria-hidden />
+              </button>
+            </div>
+            <form onSubmit={savePastLog} className="flex flex-col gap-4">
+              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                Date
                 <input
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  max={180}
-                  value={manualMinutes}
-                  onChange={(e) => setManualMinutes(e.target.value)}
+                  type="date"
+                  value={pastDate}
+                  onChange={(e) => setPastDate(e.target.value)}
+                  className="h-12 rounded-xl border bg-secondary px-3 text-base text-foreground"
+                  required
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                Start Time
+                <input
+                  type="time"
+                  value={pastStartTime}
+                  onChange={(e) => setPastStartTime(e.target.value)}
+                  className="h-12 rounded-xl border bg-secondary px-3 font-mono text-base text-foreground"
+                  required
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                End Time (optional)
+                <input
+                  type="time"
+                  value={pastEndTime}
+                  onChange={(e) => setPastEndTime(e.target.value)}
                   className="h-12 rounded-xl border bg-secondary px-3 font-mono text-base text-foreground"
                 />
               </label>
@@ -159,11 +205,11 @@ export function FeedControl({ logs, api }: { logs: Log[]; api: LogsApi }) {
                 disabled={busy}
                 className="h-12 rounded-xl bg-feed px-5 font-semibold text-background disabled:opacity-60"
               >
-                Save
+                {busy ? 'Saving...' : 'Save'}
               </button>
             </form>
-          )}
-        </>
+          </div>
+        </div>
       )}
     </section>
   )

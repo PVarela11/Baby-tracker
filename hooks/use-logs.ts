@@ -35,19 +35,29 @@ function toLocalLog(log: NewLog): Log {
 }
 
 async function fetchLogs(): Promise<LogsState> {
-  const res = await fetch('/api/logs', { cache: 'no-store' })
-  if (res.status === 503) return { backend: 'local', logs: sortLogs(readLocal()) }
-  if (!res.ok) throw new Error('Failed to load logs')
-  return { backend: 'cloud', logs: (await res.json()) as Log[] }
+  try {
+    const res = await fetch('/api/logs', { cache: 'no-store' })
+    if (res.status === 503) return { backend: 'local', logs: sortLogs(readLocal()) }
+    if (!res.ok) throw new Error('Failed to load logs')
+    return { backend: 'cloud', logs: (await res.json()) as Log[] }
+  } catch (error) {
+    console.error('Failed to fetch logs from cloud, falling back to local storage:', error)
+    return { backend: 'local', logs: sortLogs(readLocal()) }
+  }
 }
 
 async function request(url: string, init: RequestInit) {
-  const res = await fetch(url, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...init.headers },
-  })
-  if (!res.ok) throw new Error('Request failed')
-  return res
+  try {
+    const res = await fetch(url, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', ...init.headers },
+    })
+    if (!res.ok) throw new Error('Request failed')
+    return res
+  } catch (error) {
+    console.error('Request failed:', error)
+    throw error
+  }
 }
 
 export function useLogs() {
@@ -70,9 +80,14 @@ export function useLogs() {
     const optimistic = toLocalLog(log)
     await mutate(
       async (current) => {
-        const res = await request('/api/logs', { method: 'POST', body: JSON.stringify(log) })
-        const saved = (await res.json()) as Log
-        return { backend: 'cloud', logs: sortLogs([...(current?.logs ?? []), saved]) }
+        try {
+          const res = await request('/api/logs', { method: 'POST', body: JSON.stringify(log) })
+          const saved = (await res.json()) as Log
+          return { backend: 'cloud', logs: sortLogs([...(current?.logs ?? []), saved]) }
+        } catch (error) {
+          console.error('Failed to create log on cloud, falling back to local:', error)
+          return { backend: 'local', logs: sortLogs([...readLocal(), toLocalLog(log)]) }
+        }
       },
       {
         optimisticData: (current) => ({
@@ -91,9 +106,14 @@ export function useLogs() {
     }
     await mutate(
       async (current) => {
-        const res = await request(`/api/logs/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
-        const saved = (await res.json()) as Log
-        return { backend: 'cloud', logs: (current?.logs ?? []).map((l) => (l.id === id ? saved : l)) }
+        try {
+          const res = await request(`/api/logs/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
+          const saved = (await res.json()) as Log
+          return { backend: 'cloud', logs: (current?.logs ?? []).map((l) => (l.id === id ? saved : l)) }
+        } catch (error) {
+          console.error('Failed to update log on cloud, falling back to local:', error)
+          return { backend: 'local', logs: readLocal().map((l) => (l.id === id ? { ...l, ...patch } : l)) }
+        }
       },
       {
         optimisticData: (current) => ({
@@ -110,8 +130,13 @@ export function useLogs() {
     if (backend === 'local') return applyLocal((all) => all.filter((l) => l.id !== id))
     await mutate(
       async (current) => {
-        await request(`/api/logs/${id}`, { method: 'DELETE' })
-        return { backend: 'cloud', logs: (current?.logs ?? []).filter((l) => l.id !== id) }
+        try {
+          await request(`/api/logs/${id}`, { method: 'DELETE' })
+          return { backend: 'cloud', logs: (current?.logs ?? []).filter((l) => l.id !== id) }
+        } catch (error) {
+          console.error('Failed to delete log on cloud, falling back to local:', error)
+          return { backend: 'local', logs: readLocal().filter((l) => l.id !== id) }
+        }
       },
       {
         optimisticData: (current) => ({

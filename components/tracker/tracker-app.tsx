@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { CalendarDays, ChartGantt, Settings } from 'lucide-react'
+import { CalendarDays, ChartGantt, Settings, Cloud, HardDrive, CheckCircle, AlertCircle } from 'lucide-react'
 import { useLogs } from '@/hooks/use-logs'
 import { cn } from '@/lib/utils'
 import { DateNav } from './date-nav'
@@ -12,6 +12,8 @@ import { SettingsDialog } from './settings-dialog'
 import { SleepControl } from './sleep-control'
 import { StatusCounters } from './status-counters'
 import { TimelineView } from './timeline-view'
+
+const APP_VERSION = 'v1.1.0 - Windsurf'
 
 type Tab = 'today' | 'timeline'
 
@@ -24,7 +26,28 @@ export function TrackerApp() {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col">
       <header className="sticky top-0 z-10 flex items-center justify-between bg-background/90 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 backdrop-blur">
-        <h1 className="text-lg font-semibold">Baby Tracker</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-lg font-semibold">Baby Tracker</h1>
+          <div
+            className={cn(
+              'flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
+              api.backend === 'cloud' ? 'bg-green-500/10 text-green-600' : 'bg-amber-500/10 text-amber-600',
+            )}
+            title={api.backend === 'cloud' ? 'Synced to cloud' : 'Saving locally'}
+          >
+            {api.backend === 'cloud' ? (
+              <>
+                <CheckCircle className="size-3" aria-hidden />
+                Synced
+              </>
+            ) : (
+              <>
+                <AlertCircle className="size-3" aria-hidden />
+                Offline
+              </>
+            )}
+          </div>
+        </div>
         <button
           type="button"
           onClick={() => setSettingsOpen(true)}
@@ -35,10 +58,12 @@ export function TrackerApp() {
         </button>
       </header>
 
-      <main className="flex flex-1 flex-col gap-4 px-4 pb-28">
-        {api.error && !api.logs.length ? (
+      <main className="flex flex-1 flex-col gap-4 px-4 pb-32">
+        {api.error ? (
           <p role="alert" className="rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm">
-            Could not reach the server. Check your connection and try again.
+            {api.backend === 'local'
+              ? 'Could not sync to cloud. Changes are saved locally and will sync when connection is restored.'
+              : 'Could not reach the server. Check your connection and try again.'}
           </p>
         ) : null}
 
@@ -73,7 +98,11 @@ export function TrackerApp() {
         </div>
       </nav>
 
-      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} api={api} />
+      <div className="px-4 pb-2 text-center text-xs text-muted-foreground">
+        {APP_VERSION}
+      </div>
+
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} api={api} version={APP_VERSION} />
     </div>
   )
 }
