@@ -1,28 +1,50 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Cloud, Database, HardDrive, Trash2, X } from 'lucide-react'
+import { Cloud, Database, HardDrive, Trash2, X, Baby } from 'lucide-react'
 import type { LogsApi } from '@/hooks/use-logs'
+import type { BabyProfileApi } from '@/hooks/use-baby-profile'
+import type { Gender } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 const THEME_KEY = 'baby-tracker:theme'
 
-export function SettingsDialog({ open, onClose, api, version }: { open: boolean; onClose: () => void; api: LogsApi; version: string }) {
+export function SettingsDialog({
+  open,
+  onClose,
+  api,
+  version,
+  babyProfile,
+}: {
+  open: boolean
+  onClose: () => void
+  api: LogsApi
+  version: string
+  babyProfile: BabyProfileApi
+}) {
   const ref = useRef<HTMLDialogElement>(null)
   const [oled, setOled] = useState(false)
   const [confirmClear, setConfirmClear] = useState(false)
-  const [busy, setBusy] = useState<'sample' | 'clear' | null>(null)
+  const [busy, setBusy] = useState<'sample' | 'clear' | 'profile' | null>(null)
   const [message, setMessage] = useState('')
+  const [babyName, setBabyName] = useState('')
+  const [babyDob, setBabyDob] = useState('')
+  const [babyGender, setBabyGender] = useState<Gender | ''>('')
 
   useEffect(() => {
     const dialog = ref.current
     if (!dialog) return
     if (open && !dialog.open) {
       setOled(document.documentElement.classList.contains('oled'))
+      if (babyProfile.profile) {
+        setBabyName(babyProfile.profile.name || '')
+        setBabyDob(babyProfile.profile.date_of_birth ? babyProfile.profile.date_of_birth.split('T')[0] : '')
+        setBabyGender(babyProfile.profile.gender || '')
+      }
       dialog.showModal()
     }
     if (!open && dialog.open) dialog.close()
-  }, [open])
+  }, [open, babyProfile.profile])
 
   function toggleOled() {
     const next = !oled
@@ -59,6 +81,24 @@ export function SettingsDialog({ open, onClose, api, version }: { open: boolean;
     } finally {
       setBusy(null)
       setConfirmClear(false)
+    }
+  }
+
+  async function saveBabyProfile(e: React.FormEvent) {
+    e.preventDefault()
+    setBusy('profile')
+    setMessage('')
+    try {
+      await babyProfile.updateProfile({
+        name: babyName || null,
+        date_of_birth: babyDob ? new Date(babyDob).toISOString() : null,
+        gender: babyGender || null,
+      })
+      setMessage('Baby profile saved.')
+    } catch {
+      setMessage('Could not save baby profile.')
+    } finally {
+      setBusy(null)
     }
   }
 
@@ -107,6 +147,54 @@ export function SettingsDialog({ open, onClose, api, version }: { open: boolean;
                 : 'Supabase is not configured, so logs are stored in this browser.'}
             </span>
           </div>
+        </div>
+
+        <div className="rounded-2xl border bg-card p-4">
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+            <Baby className="size-4 text-sleep" aria-hidden />
+            Baby Profile
+          </h3>
+          <form onSubmit={saveBabyProfile} className="flex flex-col gap-3">
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              Baby Name
+              <input
+                type="text"
+                value={babyName}
+                onChange={(e) => setBabyName(e.target.value)}
+                className="h-10 rounded-lg border bg-secondary px-3 text-sm text-foreground"
+                placeholder="Baby's name"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              Date of Birth
+              <input
+                type="date"
+                value={babyDob}
+                onChange={(e) => setBabyDob(e.target.value)}
+                className="h-10 rounded-lg border bg-secondary px-3 text-sm text-foreground"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              Gender
+              <select
+                value={babyGender}
+                onChange={(e) => setBabyGender(e.target.value as Gender | '')}
+                className="h-10 rounded-lg border bg-secondary px-3 text-sm text-foreground"
+              >
+                <option value="">Select gender</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <button
+              type="submit"
+              disabled={busy === 'profile'}
+              className="h-10 rounded-lg bg-sleep px-4 text-sm font-semibold text-background disabled:opacity-60"
+            >
+              {busy === 'profile' ? 'Saving...' : 'Save Profile'}
+            </button>
+          </form>
         </div>
 
         <label className="flex items-center justify-between gap-3">
