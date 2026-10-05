@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Baby, Ruler, TapeMeasure, Scale, Plus, Pencil, Trash2, X } from 'lucide-react'
+import { Baby, Ruler, Scale, Plus, Pencil, Trash2, X } from 'lucide-react'
 import type { GrowthLogsApi } from '@/hooks/use-growth-logs'
 import type { GrowthLog } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -211,7 +211,7 @@ function GrowthLogRow({ log, onEdit, onDelete }: { log: GrowthLog; onEdit: () =>
           )}
           {log.head_circumference_cm && (
             <span className="flex items-center gap-1">
-              <TapeMeasure className="size-3" aria-hidden />
+              <Ruler className="size-3" aria-hidden />
               {log.head_circumference_cm.toFixed(1)} cm
             </span>
           )}
