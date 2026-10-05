@@ -1,5 +1,5 @@
 export type EventType = 'feed' | 'sleep' | 'diaper'
-export type BreastSide = 'left' | 'right' | 'both'
+export type BreastSide = 'left' | 'right'
 export type DiaperType = 'wet' | 'dirty' | 'both'
 
 export interface Log {
@@ -17,7 +17,7 @@ export type NewLog = Omit<Log, 'id' | 'created_at'>
 export type LogPatch = Partial<Pick<Log, 'start_time' | 'end_time' | 'breast_side' | 'diaper_type' | 'notes'>>
 
 const EVENT_TYPES: EventType[] = ['feed', 'sleep', 'diaper']
-const SIDES: BreastSide[] = ['left', 'right', 'both']
+const SIDES: BreastSide[] = ['left', 'right']
 const DIAPERS: DiaperType[] = ['wet', 'dirty', 'both']
 
 function isIsoDate(value: unknown): value is string {

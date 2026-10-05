@@ -18,6 +18,8 @@ export function StatusCounters({ logs }: { logs: Log[] }) {
   const lastDiaper = latest(logs, 'diaper')
   const lastWake = logs.find((l) => l.event_type === 'sleep' && l.end_time)
 
+  const feedReferenceTime = runningFeed ? runningFeed.start_time : lastFeed?.end_time || lastFeed?.start_time
+
   return (
     <section aria-label="Time since last events" className="flex flex-col gap-3">
       {runningSleep && (
@@ -45,8 +47,8 @@ export function StatusCounters({ logs }: { logs: Log[] }) {
           value={
             runningFeed
               ? formatDuration(now - Date.parse(runningFeed.start_time))
-              : lastFeed
-                ? `${formatDuration(now - Date.parse(lastFeed.start_time))} ago`
+              : feedReferenceTime
+                ? `${formatDuration(now - Date.parse(feedReferenceTime))} ago`
                 : '—'
           }
           tone="feed"
