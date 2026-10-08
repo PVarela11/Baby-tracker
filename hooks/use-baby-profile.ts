@@ -94,7 +94,7 @@ export function useBabyProfile() {
     )
   }
 
-  return { profile, error, isLoading, updateProfile, syncError }
+  return { profile, error, isLoading, updateProfile, syncError, mutate }
 }
 
 export type BabyProfileApi = ReturnType<typeof useBabyProfile>

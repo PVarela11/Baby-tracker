@@ -1,14 +1,14 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { CalendarDays, ChartGantt, Settings, Cloud, HardDrive, CheckCircle, AlertCircle, Baby, WifiOff } from 'lucide-react'
+import { CalendarDays, ChartGantt, Settings, Cloud, HardDrive, CheckCircle, AlertCircle, Baby, WifiOff, Check } from 'lucide-react'
 import { useLogs } from '@/hooks/use-logs'
 import { useVitaminLogs } from '@/hooks/use-vitamin-logs'
 import { useGrowthLogs } from '@/hooks/use-growth-logs'
 import { useBabyProfile } from '@/hooks/use-baby-profile'
 import { cn } from '@/lib/utils'
 import { calculateAge } from '@/lib/time'
-import { setupSyncListener } from '@/lib/sync-queue'
+import { setupSyncListener, getSyncStatus, clearSyncStatus } from '@/lib/sync-queue'
 import { DateNav } from './date-nav'
 import { DayLog } from './day-log'
 import { DiaperControl } from './diaper-control'
@@ -20,7 +20,7 @@ import { TimelineView } from './timeline-view'
 import { VitaminControl } from './vitamin-control'
 import { GrowthTracker } from './growth-tracker'
 
-const APP_VERSION = 'v1.2.0 - Vitamin & Growth Tracking'
+const APP_VERSION = 'v1.3.0 - Offline PWA Support'
 
 type Tab = 'today' | 'timeline' | 'growth'
 
@@ -33,9 +33,27 @@ export function TrackerApp() {
   const [date, setDate] = useState(() => new Date())
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
+  const [syncStatus, setSyncStatus] = useState<{ success: boolean; message: string } | null>(null)
 
   useEffect(() => {
-    const cleanup = setupSyncListener()
+    // Check for existing sync status on mount
+    const existingStatus = getSyncStatus()
+    if (existingStatus) {
+      setSyncStatus(existingStatus)
+      // Clear after 5 seconds
+      setTimeout(() => {
+        clearSyncStatus()
+        setSyncStatus(null)
+      }, 5000)
+    }
+
+    const cleanup = setupSyncListener(() => {
+      // Refresh all data after sync completes
+      api.mutate()
+      vitaminApi.mutate()
+      growthApi.mutate()
+      babyProfile.mutate()
+    })
 
     const handleOnline = () => setIsOnline(true)
     const handleOffline = () => setIsOnline(false)
@@ -48,7 +66,7 @@ export function TrackerApp() {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
     }
-  }, [])
+  }, [api, vitaminApi, growthApi, babyProfile])
 
   const ageDisplay = babyProfile.profile?.date_of_birth
     ? `Baby ${babyProfile.profile.name || '—'} • ${calculateAge(babyProfile.profile.date_of_birth)}`
@@ -99,6 +117,24 @@ export function TrackerApp() {
           <div className="flex items-center gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700">
             <WifiOff className="size-4" aria-hidden />
             <span>Offline Mode — Changes saved locally</span>
+          </div>
+        )}
+
+        {syncStatus && (
+          <div
+            className={cn(
+              'flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm',
+              syncStatus.success
+                ? 'border-green-500/40 bg-green-500/10 text-green-700'
+                : 'border-red-500/40 bg-red-500/10 text-red-700',
+            )}
+          >
+            {syncStatus.success ? (
+              <Check className="size-4" aria-hidden />
+            ) : (
+              <AlertCircle className="size-4" aria-hidden />
+            )}
+            <span>{syncStatus.message}</span>
           </div>
         )}
 

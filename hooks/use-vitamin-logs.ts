@@ -166,7 +166,7 @@ export function useVitaminLogs() {
     )
   }
 
-  return { logs, error, isLoading, createVitaminLog, updateVitaminLog, deleteVitaminLog, syncError }
+  return { logs, error, isLoading, createVitaminLog, updateVitaminLog, deleteVitaminLog, syncError, mutate }
 }
 
 export type VitaminLogsApi = ReturnType<typeof useVitaminLogs>
