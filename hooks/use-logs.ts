@@ -35,14 +35,25 @@ function toLocalLog(log: NewLog): Log {
 }
 
 async function fetchLogs(): Promise<LogsState> {
+  // Initialize from localStorage first
+  const localLogs = sortLogs(readLocal())
+
   try {
     const res = await fetch('/api/logs', { cache: 'no-store' })
-    if (res.status === 503) return { backend: 'local', logs: sortLogs(readLocal()) }
-    if (!res.ok) throw new Error('Failed to load logs')
-    return { backend: 'cloud', logs: (await res.json()) as Log[] }
+    if (res.status === 503) return { backend: 'local', logs: localLogs }
+    if (!res.ok) {
+      console.error('Failed to fetch logs from cloud, using local storage')
+      return { backend: 'local', logs: localLogs }
+    }
+    const cloudLogs = (await res.json()) as Log[]
+    // If cloud returns empty or fails, use local data
+    if (!cloudLogs || cloudLogs.length === 0) {
+      return { backend: 'local', logs: localLogs }
+    }
+    return { backend: 'cloud', logs: cloudLogs }
   } catch (error) {
     console.error('Failed to fetch logs from cloud, falling back to local storage:', error)
-    return { backend: 'local', logs: sortLogs(readLocal()) }
+    return { backend: 'local', logs: localLogs }
   }
 }
 
