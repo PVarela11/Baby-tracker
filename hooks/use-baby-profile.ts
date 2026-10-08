@@ -69,20 +69,29 @@ export function useBabyProfile() {
   const [syncError, setSyncError] = useState<string | null>(null)
 
   async function updateProfile(profile: BabyProfile) {
+    // Save to localStorage immediately (local-first)
+    writeLocal(profile)
+
     await mutate(
       async () => {
         try {
           const res = await request('/api/baby-profile', { method: 'POST', body: JSON.stringify(profile) })
           const saved = (await res.json()) as BabyProfile
           setSyncError(null)
+          // Update localStorage with server response
+          writeLocal(saved)
           return saved
         } catch (error) {
-          console.error('Failed to update baby profile on cloud, falling back to local:', error)
+          console.error('Failed to update baby profile on cloud, using local storage:', error)
           setSyncError('Saved locally - will sync when online')
-          // Add to sync queue
-          addToSyncQueue({ type: 'update_profile', data: profile })
-          // Save locally
-          writeLocal(profile)
+          // Add to sync queue with new format
+          addToSyncQueue({
+            type: 'update_profile',
+            endpoint: '/api/baby-profile',
+            payload: profile,
+            action: 'POST',
+          })
+          // Data already saved locally above
           return profile
         }
       },

@@ -12,6 +12,8 @@ self.addEventListener('install', (event) => {
       return cache.addAll(urlsToCache)
     })
   )
+  // Activate immediately
+  self.skipWaiting()
 })
 
 self.addEventListener('fetch', (event) => {
@@ -40,11 +42,22 @@ self.addEventListener('fetch', (event) => {
 
         return response
       }).catch(() => {
-        // If both cache and network fail, try to return the cached root for navigation
+        // If both cache and network fail
+        // For navigation requests, return cached root
         if (event.request.mode === 'navigate') {
-          return caches.match('/')
+          return caches.match('/').then((cachedRoot) => {
+            if (cachedRoot) {
+              return cachedRoot
+            }
+            // If no cached root, return a basic offline fallback
+            return new Response('Offline - No cached version available', {
+              status: 503,
+              statusText: 'Service Unavailable',
+              headers: new Headers({ 'Content-Type': 'text/plain' }),
+            })
+          })
         }
-        // For API requests, we want them to fail so the app knows it's offline
+        // For API requests, let them fail so the app knows it's offline
         throw new Error('Network request failed')
       })
     })
@@ -64,4 +77,6 @@ self.addEventListener('activate', (event) => {
       )
     })
   )
+  // Take control of all pages immediately
+  event.waitUntil(self.clients.claim())
 })
