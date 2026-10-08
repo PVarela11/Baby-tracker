@@ -18,6 +18,7 @@ export function DiaperControl({ api }: { api: LogsApi }) {
   const [pastDate, setPastDate] = useState(() => new Date().toISOString().split('T')[0])
   const [pastTime, setPastTime] = useState('')
   const [selectedType, setSelectedType] = useState<DiaperType | null>(null)
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     if (!saved) return
@@ -26,37 +27,47 @@ export function DiaperControl({ api }: { api: LogsApi }) {
   }, [saved])
 
   async function log(type: DiaperType) {
-    await api.createLog({
-      event_type: 'diaper',
-      start_time: new Date().toISOString(),
-      end_time: null,
-      breast_side: null,
-      diaper_type: type,
-      notes: null,
-    })
-    setSaved(type)
+    if (busy) return
+    setBusy(true)
+    try {
+      await api.createLog({
+        event_type: 'diaper',
+        start_time: new Date().toISOString(),
+        end_time: null,
+        breast_side: null,
+        diaper_type: type,
+        notes: null,
+      })
+      setSaved(type)
+    } finally {
+      setBusy(false)
+    }
   }
 
-  function savePastLog(e: React.FormEvent) {
+  async function savePastLog(e: React.FormEvent) {
     e.preventDefault()
-    if (!pastDate || !pastTime || !selectedType) return
+    if (!pastDate || !pastTime || !selectedType || busy) return
 
     const dateTime = new Date(`${pastDate}T${pastTime}`)
     if (isNaN(dateTime.getTime())) return
 
-    api.createLog({
-      event_type: 'diaper',
-      start_time: dateTime.toISOString(),
-      end_time: null,
-      breast_side: null,
-      diaper_type: selectedType,
-      notes: null,
-    }).then(() => {
+    setBusy(true)
+    try {
+      await api.createLog({
+        event_type: 'diaper',
+        start_time: dateTime.toISOString(),
+        end_time: null,
+        breast_side: null,
+        diaper_type: selectedType,
+        notes: null,
+      })
       setManualOpen(false)
       setPastDate(new Date().toISOString().split('T')[0])
       setPastTime('')
       setSelectedType(null)
-    })
+    } finally {
+      setBusy(false)
+    }
   }
 
   function openPastLogModal() {
@@ -78,9 +89,10 @@ export function DiaperControl({ api }: { api: LogsApi }) {
             key={o.value}
             type="button"
             onClick={() => log(o.value)}
+            disabled={busy}
             aria-label={`Log ${o.label.toLowerCase()} diaper`}
             className={cn(
-              'flex h-20 items-center justify-center gap-2 rounded-2xl text-lg font-semibold transition-colors',
+              'flex h-20 items-center justify-center gap-2 rounded-2xl text-lg font-semibold transition-colors disabled:opacity-60',
               saved === o.value ? 'bg-diaper text-background' : 'bg-diaper/15 text-diaper',
             )}
           >
@@ -157,10 +169,10 @@ export function DiaperControl({ api }: { api: LogsApi }) {
               </div>
               <button
                 type="submit"
-                disabled={!selectedType}
+                disabled={!selectedType || busy}
                 className="h-12 rounded-xl bg-diaper px-5 font-semibold text-background disabled:opacity-60"
               >
-                Save
+                {busy ? 'Saving...' : 'Save'}
               </button>
             </form>
           </div>

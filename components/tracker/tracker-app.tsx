@@ -21,7 +21,7 @@ import { VitaminControl } from './vitamin-control'
 import { GrowthTracker } from './growth-tracker'
 import { SyncDialog } from './sync-dialog'
 
-const APP_VERSION = 'v1.5.0 - Reconnect Sync Dialog & Offline Tags'
+const APP_VERSION = 'v1.6.0 - Structural Fixes: Duplicate Prevention, Chronological Sorting, Sync Queue, SW Fallback'
 
 type Tab = 'today' | 'timeline' | 'growth'
 

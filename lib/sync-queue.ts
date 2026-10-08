@@ -124,41 +124,26 @@ export async function processSyncQueue(onComplete?: () => void) {
   console.log(`Processing ${queue.length} offline actions...`)
   setSyncing(true)
 
-  let failedCount = 0
-  const initialQueueLength = queue.length
+  try {
+    // Process all actions in parallel using Promise.all
+    const syncPromises = queue.map(action => processAction(action))
+    await Promise.all(syncPromises)
 
-  // Process actions sequentially
-  for (const action of queue) {
-    try {
-      await processAction(action)
-      console.log('Successfully synced action:', action.type)
-    } catch (error) {
-      console.error('Failed to process sync action:', action, error)
-      failedCount++
-      // Stop processing on first error to avoid partial sync
-      break
-    }
-  }
-
-  const remainingQueue = getSyncQueue()
-  const successCount = initialQueueLength - remainingQueue.length - failedCount
-
-  if (remainingQueue.length === 0) {
+    // Only clear queue if all actions succeeded
     clearSyncQueue()
-    setSyncStatus({ success: true, message: `Successfully synced ${successCount} items to Supabase` })
+    setSyncStatus({ success: true, message: `Successfully synced ${queue.length} items to Supabase` })
     console.log('All offline actions synced successfully')
-  } else {
+  } catch (error) {
+    console.error('Failed to sync offline actions:', error)
     setSyncStatus({
       success: false,
-      message: `Failed to sync some offline logs. ${remainingQueue.length} items saved locally.`,
+      message: `Failed to sync offline logs. ${queue.length} items saved locally.`,
     })
-    console.error(`Failed to sync ${remainingQueue.length} offline actions`)
+  } finally {
+    setSyncing(false)
+    // Call completion callback after sync attempt
+    onComplete?.()
   }
-
-  setSyncing(false)
-
-  // Call completion callback after sync attempt
-  onComplete?.()
 }
 
 async function processAction(action: SyncAction) {
@@ -303,11 +288,6 @@ async function processAction(action: SyncAction) {
       throw new Error(`Request failed: ${response.status} - ${errorText}`)
     }
   }
-
-  // Remove processed action from queue only after successful request
-  const queue = getSyncQueue()
-  const newQueue = queue.filter((a) => a.id !== action.id)
-  localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(newQueue))
 }
 
 export function setupSyncListener(onRefreshData?: () => void) {
