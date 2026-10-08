@@ -13,20 +13,34 @@ export const metadata: Metadata = {
   applicationName: 'Baby Tracker',
   appleWebApp: { capable: true, title: 'Baby Tracker', statusBarStyle: 'black-translucent' },
   icons: {
-    icon: '/icon-512.png',
-    apple: '/icon-512.png',
+    icon: [
+      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+    ],
+    apple: { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
   },
+  manifest: '/manifest.json',
 }
 
 export const viewport: Viewport = {
   colorScheme: 'dark',
-  themeColor: '#16181f',
+  themeColor: '#8B5CF6',
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
 }
 
 const themeScript = `try{if(localStorage.getItem('baby-tracker:theme')==='oled'){document.documentElement.classList.add('oled')}}catch(e){}`
+
+const serviceWorkerScript = `if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').then((registration) => {
+      console.log('SW registered: ', registration);
+    }).catch((registrationError) => {
+      console.log('SW registration failed: ', registrationError);
+    });
+  });
+}`
 
 export default function RootLayout({
   children,
@@ -37,6 +51,9 @@ export default function RootLayout({
     <html lang="en" className={`dark ${geistSans.variable} ${geistMono.variable}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script dangerouslySetInnerHTML={{ __html: serviceWorkerScript }} />
+        <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </head>
       <body className="antialiased">
         {children}

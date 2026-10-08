@@ -174,7 +174,7 @@ export function useLogs() {
     await mutate()
   }
 
-  return { logs, backend, error, isLoading, createLog, updateLog, deleteLog, clearAll, loadSample }
+  return { logs, backend, error, isLoading, createLog, updateLog, deleteLog, clearAll, loadSample, mutate }
 }
 
 export type LogsApi = ReturnType<typeof useLogs>

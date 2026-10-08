@@ -168,7 +168,7 @@ export function useGrowthLogs() {
     )
   }
 
-  return { logs, error, isLoading, createGrowthLog, updateGrowthLog, deleteGrowthLog, syncError }
+  return { logs, error, isLoading, createGrowthLog, updateGrowthLog, deleteGrowthLog, syncError, mutate }
 }
 
 export type GrowthLogsApi = ReturnType<typeof useGrowthLogs>
