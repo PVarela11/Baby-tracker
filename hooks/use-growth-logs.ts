@@ -4,6 +4,7 @@ import { useState } from 'react'
 import useSWR from 'swr'
 import type { GrowthLog, GrowthLogPatch, NewGrowthLog } from '@/lib/types'
 import { addToSyncQueue } from '@/lib/sync-queue'
+import { supabase } from '@/lib/supabase/client'
 
 const LOCAL_KEY = 'baby-tracker:growth-logs'
 
@@ -25,45 +26,45 @@ function sortLogs(logs: GrowthLog[]) {
 }
 
 function toLocalLog(log: NewGrowthLog): GrowthLog {
-  return { ...log, id: crypto.randomUUID(), created_at: new Date().toISOString() }
+  return {
+    id: crypto.randomUUID(),
+    log_date: log.log_date,
+    weight_kg: log.weight_kg,
+    height_cm: log.height_cm,
+    head_circumference_cm: log.head_circumference_cm,
+    notes: log.notes,
+    created_at: new Date().toISOString()
+  }
 }
 
 async function fetchGrowthLogs(): Promise<GrowthLog[]> {
   // Initialize from localStorage first
   const localLogs = sortLogs(readLocal())
 
+  if (!supabase) {
+    console.log('Supabase not configured, using local storage')
+    return localLogs
+  }
+
   try {
-    const res = await fetch('/api/growth-logs', { cache: 'no-store' })
-    if (!res.ok) {
-      console.error('Failed to fetch growth logs from cloud, using local storage')
+    const { data, error } = await supabase
+      .from('growth_logs')
+      .select('id,log_date,weight_kg,height_cm,head_circumference_cm,notes,created_at')
+      .order('log_date', { ascending: false })
+      .limit(1000)
+
+    if (error) {
+      console.error('Failed to fetch growth logs from cloud, using local storage:', error)
       return localLogs
     }
-    const cloudLogs = (await res.json()) as GrowthLog[]
     // If cloud returns empty or fails, use local data
-    if (!cloudLogs || cloudLogs.length === 0) {
+    if (!data || data.length === 0) {
       return localLogs
     }
-    return cloudLogs
+    return data as GrowthLog[]
   } catch (error) {
     console.error('Failed to fetch growth logs from cloud, using local storage:', error)
     return localLogs
-  }
-}
-
-async function request(url: string, init: RequestInit) {
-  try {
-    const res = await fetch(url, {
-      ...init,
-      headers: { 'Content-Type': 'application/json', ...init.headers },
-    })
-    if (!res.ok) {
-      const errorText = await res.text()
-      throw new Error(`Request failed: ${res.status} - ${errorText}`)
-    }
-    return res
-  } catch (error) {
-    console.error('Request failed:', error)
-    throw error
   }
 }
 
@@ -91,9 +92,32 @@ export function useGrowthLogs() {
     const optimistic = toLocalLog(log)
     await mutate(
       async (current) => {
+        if (!supabase) {
+          console.log('Supabase not configured, saving locally only')
+          setSyncError('Saved locally - cloud not configured')
+          return sortLogs([...local, newLog])
+        }
+
         try {
-          const res = await request('/api/growth-logs', { method: 'POST', body: JSON.stringify(log) })
-          const saved = (await res.json()) as GrowthLog
+          const { data, error } = await supabase
+            .from('growth_logs')
+            .insert({
+              id: crypto.randomUUID(),
+              log_date: log.log_date,
+              weight_kg: log.weight_kg,
+              height_cm: log.height_cm,
+              head_circumference_cm: log.head_circumference_cm,
+              notes: log.notes,
+              created_at: new Date().toISOString()
+            })
+            .select('id,log_date,weight_kg,height_cm,head_circumference_cm,notes,created_at')
+            .single()
+
+          if (error) {
+            throw error
+          }
+
+          const saved = data as GrowthLog
           setSyncError(null)
           // Update localStorage with server response
           const updatedLocal = readLocal().map((l) => (l.id === saved.id ? saved : l))
@@ -129,9 +153,25 @@ export function useGrowthLogs() {
 
     await mutate(
       async (current) => {
+        if (!supabase) {
+          console.log('Supabase not configured, saving locally only')
+          setSyncError('Saved locally - cloud not configured')
+          return updated
+        }
+
         try {
-          const res = await request(`/api/growth-logs/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
-          const saved = (await res.json()) as GrowthLog
+          const { data, error } = await supabase
+            .from('growth_logs')
+            .update(patch)
+            .eq('id', id)
+            .select('id,log_date,weight_kg,height_cm,head_circumference_cm,notes,created_at')
+            .single()
+
+          if (error) {
+            throw error
+          }
+
+          const saved = data as GrowthLog
           setSyncError(null)
           // Update localStorage with server response
           const updatedLocal = readLocal().map((l) => (l.id === saved.id ? saved : l))
@@ -167,13 +207,27 @@ export function useGrowthLogs() {
 
     await mutate(
       async (current) => {
+        if (!supabase) {
+          console.log('Supabase not configured, deleting locally only')
+          setSyncError('Deleted locally - cloud not configured')
+          return filtered
+        }
+
         try {
-          await request(`/api/growth-logs/${id}`, { method: 'DELETE' })
+          const { error } = await supabase
+            .from('growth_logs')
+            .delete()
+            .eq('id', id)
+
+          if (error) {
+            throw error
+          }
+
           setSyncError(null)
           return (current ?? []).filter((l) => l.id !== id)
         } catch (error) {
           console.error('Failed to delete growth log on cloud, using local storage:', error)
-          setSyncError('Saved locally - will sync when online')
+          setSyncError('Deleted locally - will sync when online')
           // Add to sync queue with new format
           addToSyncQueue({
             type: 'delete_growth',

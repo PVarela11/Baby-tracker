@@ -1,3 +1,5 @@
+import { supabase } from '@/lib/supabase/client'
+
 export type SyncAction = {
   id: string
   type: 'create_log' | 'update_log' | 'delete_log' | 'create_vitamin' | 'update_vitamin' | 'delete_vitamin' | 'create_growth' | 'update_growth' | 'delete_growth' | 'update_profile'
@@ -119,36 +121,113 @@ export async function processSyncQueue(onComplete?: () => void) {
 }
 
 async function processAction(action: SyncAction) {
-  const { endpoint, payload, action: method } = action
+  const { type, endpoint, payload, action: method } = action
 
-  let response: Response
+  // For vitamin and growth logs, use direct Supabase client
+  if (type.includes('vitamin') || type.includes('growth')) {
+    if (!supabase) {
+      throw new Error('Supabase not configured')
+    }
 
-  switch (method) {
-    case 'POST':
-      response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      break
-    case 'PUT':
-    case 'PATCH':
-      response = await fetch(endpoint, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      break
-    case 'DELETE':
-      response = await fetch(endpoint, { method: 'DELETE' })
-      break
-    default:
-      throw new Error(`Unknown method: ${method}`)
-  }
+    switch (type) {
+      case 'create_vitamin': {
+        const { error } = await supabase
+          .from('vitamin_logs')
+          .insert({
+            id: crypto.randomUUID(),
+            given_date: payload.given_date,
+            given_time: payload.given_time,
+            notes: payload.notes ?? "",
+            created_at: new Date().toISOString()
+          })
+        if (error) throw error
+        break
+      }
+      case 'update_vitamin': {
+        const id = endpoint.split('/').pop()
+        const { error } = await supabase
+          .from('vitamin_logs')
+          .update(payload)
+          .eq('id', id)
+        if (error) throw error
+        break
+      }
+      case 'delete_vitamin': {
+        const id = endpoint.split('/').pop()
+        const { error } = await supabase
+          .from('vitamin_logs')
+          .delete()
+          .eq('id', id)
+        if (error) throw error
+        break
+      }
+      case 'create_growth': {
+        const { error } = await supabase
+          .from('growth_logs')
+          .insert({
+            id: crypto.randomUUID(),
+            log_date: payload.log_date,
+            weight_kg: payload.weight_kg,
+            height_cm: payload.height_cm,
+            head_circumference_cm: payload.head_circumference_cm,
+            notes: payload.notes,
+            created_at: new Date().toISOString()
+          })
+        if (error) throw error
+        break
+      }
+      case 'update_growth': {
+        const id = endpoint.split('/').pop()
+        const { error } = await supabase
+          .from('growth_logs')
+          .update(payload)
+          .eq('id', id)
+        if (error) throw error
+        break
+      }
+      case 'delete_growth': {
+        const id = endpoint.split('/').pop()
+        const { error } = await supabase
+          .from('growth_logs')
+          .delete()
+          .eq('id', id)
+        if (error) throw error
+        break
+      }
+      default:
+        throw new Error(`Unknown action type: ${type}`)
+    }
+  } else {
+    // For logs and profile, use API endpoints
+    let response: Response
 
-  if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(`Request failed: ${response.status} - ${errorText}`)
+    switch (method) {
+      case 'POST':
+        response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        break
+      case 'PUT':
+      case 'PATCH':
+        response = await fetch(endpoint, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        break
+      case 'DELETE':
+        response = await fetch(endpoint, { method: 'DELETE' })
+        break
+      default:
+        throw new Error(`Unknown method: ${method}`)
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`Request failed: ${response.status} - ${errorText}`)
+    }
   }
 
   // Remove processed action from queue only after successful request

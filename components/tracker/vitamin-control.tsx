@@ -40,13 +40,11 @@ export function VitaminControl({ api }: { api: VitaminLogsApi }) {
     setBusy(true)
     try {
       // Delete from localStorage immediately
-      const local = vitaminApi.logs.filter((l) => l.id !== todayLog.id)
+      const local = api.logs.filter((l) => l.id !== todayLog.id)
       localStorage.setItem('baby-tracker:vitamin-logs', JSON.stringify(local))
-      
-      // Try to delete from Supabase
-      await api.deleteVitaminLog(todayLog.id)
-      // Also delete by date to ensure clean state
-      await fetch(`/api/vitamin-logs?given_date=${todayLog.given_date}`, { method: 'DELETE' })
+
+      // Try to delete from Supabase directly
+      await api.deleteVitaminLog(todayLog.id, todayLog.given_date)
     } finally {
       setBusy(false)
     }

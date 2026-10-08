@@ -20,7 +20,7 @@ import { TimelineView } from './timeline-view'
 import { VitaminControl } from './vitamin-control'
 import { GrowthTracker } from './growth-tracker'
 
-const APP_VERSION = 'v1.3.0 - Offline PWA Support'
+const APP_VERSION = 'v1.4.0 - Direct Supabase Client & Improved Offline Support'
 
 type Tab = 'today' | 'timeline' | 'growth'
 

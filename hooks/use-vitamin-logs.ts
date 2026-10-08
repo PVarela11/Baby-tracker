@@ -4,6 +4,7 @@ import { useState } from 'react'
 import useSWR from 'swr'
 import type { VitaminLog, VitaminLogPatch, NewVitaminLog } from '@/lib/types'
 import { addToSyncQueue } from '@/lib/sync-queue'
+import { supabase } from '@/lib/supabase/client'
 
 const LOCAL_KEY = 'baby-tracker:vitamin-logs'
 
@@ -25,45 +26,45 @@ function sortLogs(logs: VitaminLog[]) {
 }
 
 function toLocalLog(log: NewVitaminLog): VitaminLog {
-  return { ...log, id: crypto.randomUUID(), created_at: new Date().toISOString() }
+  return {
+    id: crypto.randomUUID(),
+    given_date: log.given_date,
+    given_time: log.given_time,
+    notes: log.notes ?? "",
+    created_at: new Date().toISOString()
+  }
 }
 
 async function fetchVitaminLogs(): Promise<VitaminLog[]> {
   // Initialize from localStorage first
   const localLogs = sortLogs(readLocal())
 
+  if (!supabase) {
+    console.log('Supabase not configured, using local storage')
+    return localLogs
+  }
+
   try {
-    const res = await fetch('/api/vitamin-logs', { cache: 'no-store' })
-    if (!res.ok) {
-      console.error('Failed to fetch vitamin logs from cloud, using local storage')
+    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
+    const { data, error } = await supabase
+      .from('vitamin_logs')
+      .select('id,given_date,given_time,notes,created_at')
+      .gte('given_date', since.split('T')[0])
+      .order('given_date', { ascending: false })
+      .limit(1000)
+
+    if (error) {
+      console.error('Failed to fetch vitamin logs from cloud, using local storage:', error)
       return localLogs
     }
-    const cloudLogs = (await res.json()) as VitaminLog[]
     // If cloud returns empty or fails, use local data
-    if (!cloudLogs || cloudLogs.length === 0) {
+    if (!data || data.length === 0) {
       return localLogs
     }
-    return cloudLogs
+    return data as VitaminLog[]
   } catch (error) {
     console.error('Failed to fetch vitamin logs from cloud, using local storage:', error)
     return localLogs
-  }
-}
-
-async function request(url: string, init: RequestInit) {
-  try {
-    const res = await fetch(url, {
-      ...init,
-      headers: { 'Content-Type': 'application/json', ...init.headers },
-    })
-    if (!res.ok) {
-      const errorText = await res.text()
-      throw new Error(`Request failed: ${res.status} - ${errorText}`)
-    }
-    return res
-  } catch (error) {
-    console.error('Request failed:', error)
-    throw error
   }
 }
 
@@ -91,9 +92,30 @@ export function useVitaminLogs() {
     const optimistic = toLocalLog(log)
     await mutate(
       async (current) => {
+        if (!supabase) {
+          console.log('Supabase not configured, saving locally only')
+          setSyncError('Saved locally - cloud not configured')
+          return sortLogs([...local, newLog])
+        }
+
         try {
-          const res = await request('/api/vitamin-logs', { method: 'POST', body: JSON.stringify(log) })
-          const saved = (await res.json()) as VitaminLog
+          const { data, error } = await supabase
+            .from('vitamin_logs')
+            .insert({
+              id: crypto.randomUUID(),
+              given_date: log.given_date,
+              given_time: log.given_time,
+              notes: log.notes ?? "",
+              created_at: new Date().toISOString()
+            })
+            .select('id,given_date,given_time,notes,created_at')
+            .single()
+
+          if (error) {
+            throw error
+          }
+
+          const saved = data as VitaminLog
           setSyncError(null)
           // Update localStorage with server response
           const updatedLocal = readLocal().map((l) => (l.id === saved.id ? saved : l))
@@ -129,9 +151,25 @@ export function useVitaminLogs() {
 
     await mutate(
       async (current) => {
+        if (!supabase) {
+          console.log('Supabase not configured, saving locally only')
+          setSyncError('Saved locally - cloud not configured')
+          return updated
+        }
+
         try {
-          const res = await request(`/api/vitamin-logs/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
-          const saved = (await res.json()) as VitaminLog
+          const { data, error } = await supabase
+            .from('vitamin_logs')
+            .update(patch)
+            .eq('id', id)
+            .select('id,given_date,given_time,notes,created_at')
+            .single()
+
+          if (error) {
+            throw error
+          }
+
+          const saved = data as VitaminLog
           setSyncError(null)
           // Update localStorage with server response
           const updatedLocal = readLocal().map((l) => (l.id === saved.id ? saved : l))
@@ -159,7 +197,7 @@ export function useVitaminLogs() {
     )
   }
 
-  async function deleteVitaminLog(id: string) {
+  async function deleteVitaminLog(id: string, givenDate?: string) {
     // Delete from localStorage immediately (local-first)
     const local = readLocal()
     const filtered = local.filter((l) => l.id !== id)
@@ -167,13 +205,36 @@ export function useVitaminLogs() {
 
     await mutate(
       async (current) => {
+        if (!supabase) {
+          console.log('Supabase not configured, deleting locally only')
+          setSyncError('Deleted locally - cloud not configured')
+          return filtered
+        }
+
         try {
-          await request(`/api/vitamin-logs/${id}`, { method: 'DELETE' })
+          // Delete by ID and optionally by date to ensure clean state
+          const { error } = await supabase
+            .from('vitamin_logs')
+            .delete()
+            .eq('id', id)
+
+          if (error) {
+            throw error
+          }
+
+          // Also delete by date if provided to ensure clean state
+          if (givenDate) {
+            await supabase
+              .from('vitamin_logs')
+              .delete()
+              .eq('given_date', givenDate)
+          }
+
           setSyncError(null)
           return (current ?? []).filter((l) => l.id !== id)
         } catch (error) {
           console.error('Failed to delete vitamin log on cloud, using local storage:', error)
-          setSyncError('Saved locally - will sync when online')
+          setSyncError('Deleted locally - will sync when online')
           // Add to sync queue with new format
           addToSyncQueue({
             type: 'delete_vitamin',
@@ -196,4 +257,13 @@ export function useVitaminLogs() {
   return { logs, error, isLoading, createVitaminLog, updateVitaminLog, deleteVitaminLog, syncError, mutate }
 }
 
-export type VitaminLogsApi = ReturnType<typeof useVitaminLogs>
+export type VitaminLogsApi = {
+  logs: VitaminLog[]
+  error: any
+  isLoading: boolean
+  createVitaminLog: (log: NewVitaminLog) => Promise<void>
+  updateVitaminLog: (id: string, patch: VitaminLogPatch) => Promise<void>
+  deleteVitaminLog: (id: string, givenDate?: string) => Promise<void>
+  syncError: string | null
+  mutate: () => void
+}
