@@ -1,6 +1,6 @@
-const CACHE_NAME = 'baby-tracker-v2'
-const STATIC_CACHE = 'baby-tracker-static-v2'
-const ROOT_CACHE = 'baby-tracker-root-v2'
+const CACHE_NAME = 'baby-tracker-v3'
+const STATIC_CACHE = 'baby-tracker-static-v3'
+const ROOT_CACHE = 'baby-tracker-root-v3'
 
 // Cache static assets and root page on install
 self.addEventListener('install', (event) => {
@@ -14,6 +14,7 @@ self.addEventListener('install', (event) => {
         ])
       }),
       caches.open(ROOT_CACHE).then((cache) => {
+        // Pre-cache the app shell (root page)
         return cache.add('/')
       })
     ])
@@ -42,22 +43,16 @@ self.addEventListener('fetch', (event) => {
           return response
         })
         .catch(() => {
-          // Network failed, try cache
-          return caches.match(request).then((cached) => {
-            if (cached) {
-              return cached
+          // Network failed, return cached app shell immediately
+          return caches.match('/').then((cachedRoot) => {
+            if (cachedRoot) {
+              return cachedRoot
             }
-            // If no cached version, return cached root
-            return caches.match('/').then((cachedRoot) => {
-              if (cachedRoot) {
-                return cachedRoot
-              }
-              // Return offline fallback
-              return new Response('<h1>Offline</h1><p>You are currently offline. Please check your connection.</p>', {
-                status: 503,
-                statusText: 'Service Unavailable',
-                headers: new Headers({ 'Content-Type': 'text/html' }),
-              })
+            // Fallback if root not cached (shouldn't happen with precache)
+            return new Response('<h1>Offline</h1><p>App is loading...</p>', {
+              status: 503,
+              statusText: 'Service Unavailable',
+              headers: new Headers({ 'Content-Type': 'text/html' }),
             })
           })
         })

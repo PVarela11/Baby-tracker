@@ -13,7 +13,11 @@ export function DayLog({ logs, date, api }: { logs: Log[]; date: Date; api: Logs
   const now = useNow(30_000)
   const dayStart = startOfDay(date).getTime()
   const dayEnd = dayStart + DAY
-  const dayLogs = logsForDay(logs, date, now)
+  const dayLogs = logsForDay(logs, date, now).sort((a, b) => {
+    const aTime = Date.parse(a.created_at || a.start_time)
+    const bTime = Date.parse(b.created_at || b.start_time)
+    return bTime - aTime
+  })
 
   const feeds = dayLogs.filter((l) => l.event_type === 'feed' && Date.parse(l.start_time) >= dayStart)
   const feedMs = feeds.reduce((sum, l) => sum + (logEnd(l, now) - Date.parse(l.start_time)), 0)

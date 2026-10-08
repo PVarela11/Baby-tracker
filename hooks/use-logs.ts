@@ -28,7 +28,11 @@ function writeLocal(logs: Log[]) {
 }
 
 function sortLogs(logs: Log[]) {
-  return [...logs].sort((a, b) => Date.parse(b.start_time) - Date.parse(a.start_time))
+  return [...logs].sort((a, b) => {
+    const aTime = Date.parse(a.created_at || a.start_time)
+    const bTime = Date.parse(b.created_at || b.start_time)
+    return bTime - aTime
+  })
 }
 
 function toLocalLog(log: NewLog): Log {
