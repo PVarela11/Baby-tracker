@@ -8,7 +8,7 @@ import { useGrowthLogs } from '@/hooks/use-growth-logs'
 import { useBabyProfile } from '@/hooks/use-baby-profile'
 import { cn } from '@/lib/utils'
 import { calculateAge } from '@/lib/time'
-import { setupSyncListener, getSyncStatus, clearSyncStatus } from '@/lib/sync-queue'
+import { setupSyncListener, getSyncStatus, clearSyncStatus, getSyncQueue, processSyncQueue, setSyncStatus } from '@/lib/sync-queue'
 import { DateNav } from './date-nav'
 import { DayLog } from './day-log'
 import { DiaperControl } from './diaper-control'
@@ -19,8 +19,9 @@ import { StatusCounters } from './status-counters'
 import { TimelineView } from './timeline-view'
 import { VitaminControl } from './vitamin-control'
 import { GrowthTracker } from './growth-tracker'
+import { SyncDialog } from './sync-dialog'
 
-const APP_VERSION = 'v1.4.0 - Direct Supabase Client & Improved Offline Support'
+const APP_VERSION = 'v1.5.0 - Reconnect Sync Dialog & Offline Tags'
 
 type Tab = 'today' | 'timeline' | 'growth'
 
@@ -34,6 +35,7 @@ export function TrackerApp() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
   const [syncStatus, setSyncStatus] = useState<{ success: boolean; message: string } | null>(null)
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false)
 
   useEffect(() => {
     // Check for existing sync status on mount
@@ -47,26 +49,51 @@ export function TrackerApp() {
       }, 5000)
     }
 
-    const cleanup = setupSyncListener(() => {
-      // Refresh all data after sync completes
-      api.mutate()
-      vitaminApi.mutate()
-      growthApi.mutate()
-      babyProfile.mutate()
-    })
+    const handleOnline = () => {
+      setIsOnline(true)
+      // Check if there are pending items to sync
+      const queue = getSyncQueue()
+      if (queue.length > 0) {
+        setSyncDialogOpen(true)
+      }
+    }
 
-    const handleOnline = () => setIsOnline(true)
     const handleOffline = () => setIsOnline(false)
 
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
 
     return () => {
-      cleanup()
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
     }
-  }, [api, vitaminApi, growthApi, babyProfile])
+  }, [])
+
+  const handleSyncToCloud = async () => {
+    setSyncDialogOpen(false)
+    await processSyncQueue(() => {
+      // Refresh all data after sync completes
+      api.mutate()
+      vitaminApi.mutate()
+      growthApi.mutate()
+      babyProfile.mutate()
+      // Show success toast after sync completes
+      const status = getSyncStatus()
+      if (status?.success) {
+        setSyncStatus(status)
+        setTimeout(() => {
+          clearSyncStatus()
+          setSyncStatus(null)
+        }, 5000)
+      }
+    })
+  }
+
+  const handleKeepLocal = () => {
+    setSyncDialogOpen(false)
+    // Clear the sync queue as user chose to keep local only
+    // The items remain in localStorage
+  }
 
   const ageDisplay = babyProfile.profile?.date_of_birth
     ? `Baby ${babyProfile.profile.name || '—'} • ${calculateAge(babyProfile.profile.date_of_birth)}`
@@ -199,6 +226,13 @@ export function TrackerApp() {
         api={api}
         version={APP_VERSION}
         babyProfile={babyProfile}
+      />
+
+      <SyncDialog
+        open={syncDialogOpen}
+        pendingCount={getSyncQueue().length}
+        onSync={handleSyncToCloud}
+        onKeepLocal={handleKeepLocal}
       />
     </div>
   )

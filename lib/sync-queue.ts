@@ -67,6 +67,47 @@ export function clearSyncStatus() {
   localStorage.removeItem(SYNC_STATUS_KEY)
 }
 
+export function isLogPendingSync(logId: string): boolean {
+  const queue = getSyncQueue()
+  return queue.some((action) => {
+    // For logs, check if the log ID is in the payload or endpoint
+    if (action.type.includes('log')) {
+      // For create/update/delete logs, the log ID might be in the endpoint
+      const endpointId = action.endpoint.split('/').pop()
+      if (endpointId === logId) return true
+      // For create logs, the ID might be in the payload (localId or id)
+      if (action.payload && (action.payload.localId === logId || action.payload.id === logId)) return true
+    }
+    return false
+  })
+}
+
+export function isVitaminLogPendingSync(logId: string): boolean {
+  const queue = getSyncQueue()
+  return queue.some((action) => {
+    if (action.type.includes('vitamin')) {
+      const endpointId = action.endpoint.split('/').pop()
+      if (endpointId === logId) return true
+      // Check for localId in payload
+      if (action.payload && (action.payload.localId === logId || action.payload.id === logId)) return true
+    }
+    return false
+  })
+}
+
+export function isGrowthLogPendingSync(logId: string): boolean {
+  const queue = getSyncQueue()
+  return queue.some((action) => {
+    if (action.type.includes('growth')) {
+      const endpointId = action.endpoint.split('/').pop()
+      if (endpointId === logId) return true
+      // Check for localId in payload
+      if (action.payload && (action.payload.localId === logId || action.payload.id === logId)) return true
+    }
+    return false
+  })
+}
+
 export async function processSyncQueue(onComplete?: () => void) {
   if (isSyncing()) {
     console.log('Sync already in progress, skipping')
@@ -104,7 +145,7 @@ export async function processSyncQueue(onComplete?: () => void) {
 
   if (remainingQueue.length === 0) {
     clearSyncQueue()
-    setSyncStatus({ success: true, message: `Successfully synced ${successCount} offline actions` })
+    setSyncStatus({ success: true, message: `Successfully synced ${successCount} items to Supabase` })
     console.log('All offline actions synced successfully')
   } else {
     setSyncStatus({
@@ -131,16 +172,26 @@ async function processAction(action: SyncAction) {
 
     switch (type) {
       case 'create_vitamin': {
+        const serverId = crypto.randomUUID()
+        const { localId, ...apiPayload } = payload
         const { error } = await supabase
           .from('vitamin_logs')
           .insert({
-            id: crypto.randomUUID(),
-            given_date: payload.given_date,
-            given_time: payload.given_time,
-            notes: payload.notes ?? "",
+            id: serverId,
+            given_date: apiPayload.given_date,
+            given_time: apiPayload.given_time,
+            notes: apiPayload.notes ?? "",
             created_at: new Date().toISOString()
           })
         if (error) throw error
+        // Update localStorage with server ID for the local entry
+        if (localId) {
+          const localLogs = JSON.parse(localStorage.getItem('baby-tracker:vitamin-logs') || '[]')
+          const updatedLogs = localLogs.map((l: any) =>
+            l.id === localId ? { ...l, id: serverId } : l
+          )
+          localStorage.setItem('baby-tracker:vitamin-logs', JSON.stringify(updatedLogs))
+        }
         break
       }
       case 'update_vitamin': {
@@ -162,18 +213,28 @@ async function processAction(action: SyncAction) {
         break
       }
       case 'create_growth': {
+        const serverId = crypto.randomUUID()
+        const { localId, ...apiPayload } = payload
         const { error } = await supabase
           .from('growth_logs')
           .insert({
-            id: crypto.randomUUID(),
-            log_date: payload.log_date,
-            weight_kg: payload.weight_kg,
-            height_cm: payload.height_cm,
-            head_circumference_cm: payload.head_circumference_cm,
-            notes: payload.notes,
+            id: serverId,
+            log_date: apiPayload.log_date,
+            weight_kg: apiPayload.weight_kg,
+            height_cm: apiPayload.height_cm,
+            head_circumference_cm: apiPayload.head_circumference_cm,
+            notes: apiPayload.notes,
             created_at: new Date().toISOString()
           })
         if (error) throw error
+        // Update localStorage with server ID for the local entry
+        if (localId) {
+          const localLogs = JSON.parse(localStorage.getItem('baby-tracker:growth-logs') || '[]')
+          const updatedLogs = localLogs.map((l: any) =>
+            l.id === localId ? { ...l, id: serverId } : l
+          )
+          localStorage.setItem('baby-tracker:growth-logs', JSON.stringify(updatedLogs))
+        }
         break
       }
       case 'update_growth': {
@@ -203,11 +264,24 @@ async function processAction(action: SyncAction) {
 
     switch (method) {
       case 'POST':
+        // Remove localId from payload before sending to API
+        const { localId, ...apiPayload } = payload
         response = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(apiPayload),
         })
+        if (response.ok) {
+          const saved = await response.json()
+          // Update localStorage with server ID for the local entry
+          if (localId) {
+            const localLogs = JSON.parse(localStorage.getItem('baby-tracker:logs') || '[]')
+            const updatedLogs = localLogs.map((l: any) =>
+              l.id === localId ? { ...l, id: saved.id } : l
+            )
+            localStorage.setItem('baby-tracker:logs', JSON.stringify(updatedLogs))
+          }
+        }
         break
       case 'PUT':
       case 'PATCH':

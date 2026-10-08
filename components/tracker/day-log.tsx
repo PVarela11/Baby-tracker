@@ -1,12 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { Droplets, Milk, Moon, Trash2, Pencil, X } from 'lucide-react'
+import { Droplets, Milk, Moon, Trash2, Pencil, X, WifiOff } from 'lucide-react'
 import { useNow } from '@/hooks/use-now'
 import type { LogsApi } from '@/hooks/use-logs'
 import { DAY, formatClock, formatDuration, logEnd, logsForDay, overlapMs, startOfDay } from '@/lib/time'
 import type { BreastSide, DiaperType, Log } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { isLogPendingSync } from '@/lib/sync-queue'
 
 export function DayLog({ logs, date, api }: { logs: Log[]; date: Date; api: LogsApi }) {
   const now = useNow(30_000)
@@ -229,6 +230,7 @@ function LogRow({ log, now, onEdit, onDelete }: { log: Log; now: number; onEdit:
   const meta = META[log.event_type]
   const Icon = meta.icon
   const running = log.event_type !== 'diaper' && !log.end_time
+  const pendingSync = isLogPendingSync(log.id)
   const detail =
     log.event_type === 'diaper'
       ? log.diaper_type
@@ -248,6 +250,12 @@ function LogRow({ log, now, onEdit, onDelete }: { log: Log; now: number; onEdit:
         </span>
         <span className="truncate text-xs capitalize text-muted-foreground">{detail}</span>
       </div>
+      {pendingSync && (
+        <span className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600">
+          <WifiOff className="size-3" aria-hidden />
+          <span>Offline</span>
+        </span>
+      )}
       <span className="font-mono text-sm tabular-nums text-muted-foreground">
         {formatClock(log.start_time)}
         {log.end_time && log.event_type !== 'diaper' && `–${formatClock(log.end_time)}`}
