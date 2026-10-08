@@ -106,11 +106,11 @@ export function useLogs() {
           return { backend: 'cloud', logs: sortLogs([...(current?.logs ?? []), saved]) }
         } catch (error) {
           console.error('Failed to create log on cloud, falling back to local:', error)
-          // Add to sync queue with new format
+          // Add to sync queue with new format, including local ID for tracking
           addToSyncQueue({
             type: 'create_log',
             endpoint: '/api/logs',
-            payload: log,
+            payload: { ...log, localId: newLog.id },
             action: 'POST',
           })
           // Data already saved locally above

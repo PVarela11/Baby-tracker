@@ -124,11 +124,11 @@ export function useVitaminLogs() {
         } catch (error) {
           console.error('Failed to create vitamin log on cloud, using local storage:', error)
           setSyncError('Saved locally - will sync when online')
-          // Add to sync queue with new format
+          // Add to sync queue with new format, including local ID for tracking
           addToSyncQueue({
             type: 'create_vitamin',
             endpoint: '/api/vitamin-logs',
-            payload: log,
+            payload: { ...log, localId: newLog.id },
             action: 'POST',
           })
           // Data already saved locally above
