@@ -13,11 +13,8 @@ export const metadata: Metadata = {
   applicationName: 'Baby Tracker',
   appleWebApp: { capable: true, title: 'Baby Tracker', statusBarStyle: 'black-translucent' },
   icons: {
-    icon: [
-      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
-      { url: '/icon-512.png', sizes: '512x512', type: 'image/png' },
-    ],
-    apple: { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+    icon: '/icon.svg',
+    apple: '/apple-touch-icon.svg',
   },
   manifest: '/manifest.json',
 }
@@ -53,7 +50,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <script dangerouslySetInnerHTML={{ __html: serviceWorkerScript }} />
         <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.svg" type="image/svg+xml" />
       </head>
       <body className="antialiased">
         {children}
