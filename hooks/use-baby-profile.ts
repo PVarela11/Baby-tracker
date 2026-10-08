@@ -1,7 +1,9 @@
 'use client'
 
+import { useState } from 'react'
 import useSWR from 'swr'
 import type { BabyProfile } from '@/lib/types'
+import { addToSyncQueue } from '@/lib/sync-queue'
 
 const LOCAL_KEY = 'baby-tracker:baby-profile'
 
@@ -19,13 +21,25 @@ function writeLocal(profile: BabyProfile) {
 }
 
 async function fetchBabyProfile(): Promise<BabyProfile | null> {
-  const res = await fetch('/api/baby-profile', { cache: 'no-store' })
-  if (!res.ok) {
-    console.error('Failed to fetch baby profile from cloud, using local storage')
-    return readLocal()
+  // Initialize from localStorage first
+  const localProfile = readLocal()
+
+  try {
+    const res = await fetch('/api/baby-profile', { cache: 'no-store' })
+    if (!res.ok) {
+      console.error('Failed to fetch baby profile from cloud, using local storage')
+      return localProfile
+    }
+    const data = (await res.json()) as BabyProfile
+    // If cloud returns empty or fails, use local data
+    if (!data || (!data.name && !data.date_of_birth)) {
+      return localProfile
+    }
+    return data
+  } catch (error) {
+    console.error('Failed to fetch baby profile from cloud, using local storage:', error)
+    return localProfile
   }
-  const data = (await res.json()) as BabyProfile
-  return data
 }
 
 async function request(url: string, init: RequestInit) {
@@ -34,7 +48,10 @@ async function request(url: string, init: RequestInit) {
       ...init,
       headers: { 'Content-Type': 'application/json', ...init.headers },
     })
-    if (!res.ok) throw new Error('Request failed')
+    if (!res.ok) {
+      const errorText = await res.text()
+      throw new Error(`Request failed: ${res.status} - ${errorText}`)
+    }
     return res
   } catch (error) {
     console.error('Request failed:', error)
@@ -49,15 +66,22 @@ export function useBabyProfile() {
   })
 
   const profile = data ?? null
+  const [syncError, setSyncError] = useState<string | null>(null)
 
   async function updateProfile(profile: BabyProfile) {
     await mutate(
       async () => {
         try {
           const res = await request('/api/baby-profile', { method: 'POST', body: JSON.stringify(profile) })
-          return (await res.json()) as BabyProfile
+          const saved = (await res.json()) as BabyProfile
+          setSyncError(null)
+          return saved
         } catch (error) {
           console.error('Failed to update baby profile on cloud, falling back to local:', error)
+          setSyncError('Saved locally - will sync when online')
+          // Add to sync queue
+          addToSyncQueue({ type: 'update_profile', data: profile })
+          // Save locally
           writeLocal(profile)
           return profile
         }
@@ -70,7 +94,7 @@ export function useBabyProfile() {
     )
   }
 
-  return { profile, error, isLoading, updateProfile }
+  return { profile, error, isLoading, updateProfile, syncError }
 }
 
 export type BabyProfileApi = ReturnType<typeof useBabyProfile>

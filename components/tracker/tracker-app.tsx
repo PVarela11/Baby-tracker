@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
-import { CalendarDays, ChartGantt, Settings, Cloud, HardDrive, CheckCircle, AlertCircle, Baby } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { CalendarDays, ChartGantt, Settings, Cloud, HardDrive, CheckCircle, AlertCircle, Baby, WifiOff } from 'lucide-react'
 import { useLogs } from '@/hooks/use-logs'
 import { useVitaminLogs } from '@/hooks/use-vitamin-logs'
 import { useGrowthLogs } from '@/hooks/use-growth-logs'
 import { useBabyProfile } from '@/hooks/use-baby-profile'
 import { cn } from '@/lib/utils'
 import { calculateAge } from '@/lib/time'
+import { setupSyncListener } from '@/lib/sync-queue'
 import { DateNav } from './date-nav'
 import { DayLog } from './day-log'
 import { DiaperControl } from './diaper-control'
@@ -31,10 +32,29 @@ export function TrackerApp() {
   const [tab, setTab] = useState<Tab>('today')
   const [date, setDate] = useState(() => new Date())
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
+
+  useEffect(() => {
+    const cleanup = setupSyncListener()
+
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    return () => {
+      cleanup()
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
 
   const ageDisplay = babyProfile.profile?.date_of_birth
     ? `Baby ${babyProfile.profile.name || '—'} • ${calculateAge(babyProfile.profile.date_of_birth)}`
     : 'Baby Tracker'
+
+  const hasSyncError = vitaminApi.syncError || growthApi.syncError || babyProfile.syncError
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col">
@@ -75,6 +95,20 @@ export function TrackerApp() {
       </header>
 
       <main className="flex flex-1 flex-col gap-4 px-4 pb-32">
+        {!isOnline && (
+          <div className="flex items-center gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700">
+            <WifiOff className="size-4" aria-hidden />
+            <span>Offline Mode — Changes saved locally</span>
+          </div>
+        )}
+
+        {hasSyncError && (
+          <div className="flex items-center gap-2 rounded-2xl border border-blue-500/40 bg-blue-500/10 px-4 py-3 text-sm text-blue-700">
+            <AlertCircle className="size-4" aria-hidden />
+            <span>{vitaminApi.syncError || growthApi.syncError || babyProfile.syncError}</span>
+          </div>
+        )}
+
         {api.error ? (
           <p role="alert" className="rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm">
             {api.backend === 'local'
