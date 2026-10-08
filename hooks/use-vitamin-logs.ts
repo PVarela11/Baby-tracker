@@ -83,6 +83,11 @@ export function useVitaminLogs() {
   }
 
   async function createVitaminLog(log: NewVitaminLog) {
+    // Save to localStorage immediately (local-first)
+    const local = readLocal()
+    const newLog = toLocalLog(log)
+    writeLocal([...local, newLog])
+
     const optimistic = toLocalLog(log)
     await mutate(
       async (current) => {
@@ -90,16 +95,21 @@ export function useVitaminLogs() {
           const res = await request('/api/vitamin-logs', { method: 'POST', body: JSON.stringify(log) })
           const saved = (await res.json()) as VitaminLog
           setSyncError(null)
+          // Update localStorage with server response
+          const updatedLocal = readLocal().map((l) => (l.id === saved.id ? saved : l))
+          writeLocal(updatedLocal)
           return sortLogs([...(current ?? []), saved])
         } catch (error) {
-          console.error('Failed to create vitamin log on cloud, falling back to local:', error)
+          console.error('Failed to create vitamin log on cloud, using local storage:', error)
           setSyncError('Saved locally - will sync when online')
-          // Add to sync queue
-          addToSyncQueue({ type: 'create_vitamin', data: log })
-          // Save locally
-          const local = readLocal()
-          const newLog = toLocalLog(log)
-          writeLocal([...local, newLog])
+          // Add to sync queue with new format
+          addToSyncQueue({
+            type: 'create_vitamin',
+            endpoint: '/api/vitamin-logs',
+            payload: log,
+            action: 'POST',
+          })
+          // Data already saved locally above
           return sortLogs([...local, newLog])
         }
       },
@@ -112,22 +122,32 @@ export function useVitaminLogs() {
   }
 
   async function updateVitaminLog(id: string, patch: VitaminLogPatch) {
+    // Update localStorage immediately (local-first)
+    const local = readLocal()
+    const updated = local.map((l) => (l.id === id ? { ...l, ...patch } : l))
+    writeLocal(updated)
+
     await mutate(
       async (current) => {
         try {
           const res = await request(`/api/vitamin-logs/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
           const saved = (await res.json()) as VitaminLog
           setSyncError(null)
+          // Update localStorage with server response
+          const updatedLocal = readLocal().map((l) => (l.id === saved.id ? saved : l))
+          writeLocal(updatedLocal)
           return (current ?? []).map((l) => (l.id === id ? saved : l))
         } catch (error) {
-          console.error('Failed to update vitamin log on cloud, falling back to local:', error)
+          console.error('Failed to update vitamin log on cloud, using local storage:', error)
           setSyncError('Saved locally - will sync when online')
-          // Add to sync queue
-          addToSyncQueue({ type: 'update_vitamin', id, data: patch })
-          // Update locally
-          const local = readLocal()
-          const updated = local.map((l) => (l.id === id ? { ...l, ...patch } : l))
-          writeLocal(updated)
+          // Add to sync queue with new format
+          addToSyncQueue({
+            type: 'update_vitamin',
+            endpoint: `/api/vitamin-logs/${id}`,
+            payload: patch,
+            action: 'PUT',
+          })
+          // Data already saved locally above
           return updated
         }
       },
@@ -140,6 +160,11 @@ export function useVitaminLogs() {
   }
 
   async function deleteVitaminLog(id: string) {
+    // Delete from localStorage immediately (local-first)
+    const local = readLocal()
+    const filtered = local.filter((l) => l.id !== id)
+    writeLocal(filtered)
+
     await mutate(
       async (current) => {
         try {
@@ -147,14 +172,16 @@ export function useVitaminLogs() {
           setSyncError(null)
           return (current ?? []).filter((l) => l.id !== id)
         } catch (error) {
-          console.error('Failed to delete vitamin log on cloud, falling back to local:', error)
+          console.error('Failed to delete vitamin log on cloud, using local storage:', error)
           setSyncError('Saved locally - will sync when online')
-          // Add to sync queue
-          addToSyncQueue({ type: 'delete_vitamin', id })
-          // Delete locally
-          const local = readLocal()
-          const filtered = local.filter((l) => l.id !== id)
-          writeLocal(filtered)
+          // Add to sync queue with new format
+          addToSyncQueue({
+            type: 'delete_vitamin',
+            endpoint: `/api/vitamin-logs/${id}`,
+            payload: null,
+            action: 'DELETE',
+          })
+          // Data already deleted locally above
           return filtered
         }
       },

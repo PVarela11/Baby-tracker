@@ -1,17 +1,15 @@
-export type SyncAction =
-  | { type: 'create_log'; data: any }
-  | { type: 'update_log'; id: string; data: any }
-  | { type: 'delete_log'; id: string }
-  | { type: 'create_vitamin'; data: any }
-  | { type: 'update_vitamin'; id: string; data: any }
-  | { type: 'delete_vitamin'; id: string }
-  | { type: 'create_growth'; data: any }
-  | { type: 'update_growth'; id: string; data: any }
-  | { type: 'delete_growth'; id: string }
-  | { type: 'update_profile'; data: any }
+export type SyncAction = {
+  id: string
+  type: 'create_log' | 'update_log' | 'delete_log' | 'create_vitamin' | 'update_vitamin' | 'delete_vitamin' | 'create_growth' | 'update_growth' | 'delete_growth' | 'update_profile'
+  endpoint: string
+  payload: any
+  action: 'POST' | 'PUT' | 'DELETE'
+  timestamp: number
+}
 
 const SYNC_QUEUE_KEY = 'baby-tracker:sync-queue'
 const SYNC_STATUS_KEY = 'baby-tracker:sync-status'
+const SYNCING_KEY = 'baby-tracker:is-syncing'
 
 export function getSyncQueue(): SyncAction[] {
   try {
@@ -22,14 +20,32 @@ export function getSyncQueue(): SyncAction[] {
   }
 }
 
-export function addToSyncQueue(action: SyncAction) {
+export function addToSyncQueue(action: Omit<SyncAction, 'id' | 'timestamp'>) {
   const queue = getSyncQueue()
-  queue.push(action)
+  const fullAction: SyncAction = {
+    ...action,
+    id: crypto.randomUUID(),
+    timestamp: Date.now(),
+  }
+  queue.push(fullAction)
   localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(queue))
+  console.log('Added to sync queue:', fullAction)
 }
 
 export function clearSyncQueue() {
   localStorage.removeItem(SYNC_QUEUE_KEY)
+}
+
+export function isSyncing(): boolean {
+  try {
+    return localStorage.getItem(SYNCING_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+export function setSyncing(value: boolean) {
+  localStorage.setItem(SYNCING_KEY, value ? 'true' : 'false')
 }
 
 export function getSyncStatus(): { success: boolean; message: string } | null {
@@ -50,6 +66,11 @@ export function clearSyncStatus() {
 }
 
 export async function processSyncQueue(onComplete?: () => void) {
+  if (isSyncing()) {
+    console.log('Sync already in progress, skipping')
+    return
+  }
+
   const queue = getSyncQueue()
   if (queue.length === 0) {
     console.log('No offline actions to sync')
@@ -58,13 +79,16 @@ export async function processSyncQueue(onComplete?: () => void) {
   }
 
   console.log(`Processing ${queue.length} offline actions...`)
+  setSyncing(true)
 
   let failedCount = 0
   const initialQueueLength = queue.length
 
+  // Process actions sequentially
   for (const action of queue) {
     try {
       await processAction(action)
+      console.log('Successfully synced action:', action.type)
     } catch (error) {
       console.error('Failed to process sync action:', action, error)
       failedCount++
@@ -88,74 +112,38 @@ export async function processSyncQueue(onComplete?: () => void) {
     console.error(`Failed to sync ${remainingQueue.length} offline actions`)
   }
 
+  setSyncing(false)
+
   // Call completion callback after sync attempt
   onComplete?.()
 }
 
 async function processAction(action: SyncAction) {
+  const { endpoint, payload, action: method } = action
+
   let response: Response
 
-  switch (action.type) {
-    case 'create_log':
-      response = await fetch('/api/logs', {
+  switch (method) {
+    case 'POST':
+      response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(action.data),
+        body: JSON.stringify(payload),
       })
       break
-    case 'update_log':
-      response = await fetch(`/api/logs/${action.id}`, {
-        method: 'PATCH',
+    case 'PUT':
+    case 'PATCH':
+      response = await fetch(endpoint, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(action.data),
+        body: JSON.stringify(payload),
       })
       break
-    case 'delete_log':
-      response = await fetch(`/api/logs/${action.id}`, { method: 'DELETE' })
-      break
-    case 'create_vitamin':
-      response = await fetch('/api/vitamin-logs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(action.data),
-      })
-      break
-    case 'update_vitamin':
-      response = await fetch(`/api/vitamin-logs/${action.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(action.data),
-      })
-      break
-    case 'delete_vitamin':
-      response = await fetch(`/api/vitamin-logs/${action.id}`, { method: 'DELETE' })
-      break
-    case 'create_growth':
-      response = await fetch('/api/growth-logs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(action.data),
-      })
-      break
-    case 'update_growth':
-      response = await fetch(`/api/growth-logs/${action.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(action.data),
-      })
-      break
-    case 'delete_growth':
-      response = await fetch(`/api/growth-logs/${action.id}`, { method: 'DELETE' })
-      break
-    case 'update_profile':
-      response = await fetch('/api/baby-profile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(action.data),
-      })
+    case 'DELETE':
+      response = await fetch(endpoint, { method: 'DELETE' })
       break
     default:
-      throw new Error('Unknown action type')
+      throw new Error(`Unknown method: ${method}`)
   }
 
   if (!response.ok) {
@@ -165,7 +153,7 @@ async function processAction(action: SyncAction) {
 
   // Remove processed action from queue only after successful request
   const queue = getSyncQueue()
-  const newQueue = queue.filter((a) => a !== action)
+  const newQueue = queue.filter((a) => a.id !== action.id)
   localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(newQueue))
 }
 
@@ -174,7 +162,7 @@ export function setupSyncListener(onRefreshData?: () => void) {
 
   const handleOnline = () => {
     console.log('Network reconnected, processing sync queue...')
-    // Process sync queue first
+    // Process sync queue first (state is frozen during sync)
     processSyncQueue(() => {
       // Only after sync completes, refresh data from server
       console.log('Sync complete, refreshing data from server...')

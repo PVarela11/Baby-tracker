@@ -3,6 +3,7 @@
 import useSWR from 'swr'
 import { generateSampleLogs } from '@/lib/sample-data'
 import type { Log, LogPatch, NewLog } from '@/lib/types'
+import { addToSyncQueue } from '@/lib/sync-queue'
 
 export type Backend = 'cloud' | 'local'
 
@@ -87,6 +88,11 @@ export function useLogs() {
   }
 
   async function createLog(log: NewLog) {
+    // Save to localStorage immediately (local-first)
+    const local = readLocal()
+    const newLog = toLocalLog(log)
+    writeLocal([...local, newLog])
+
     if (backend === 'local') return applyLocal((all) => [...all, toLocalLog(log)])
     const optimistic = toLocalLog(log)
     await mutate(
@@ -94,10 +100,21 @@ export function useLogs() {
         try {
           const res = await request('/api/logs', { method: 'POST', body: JSON.stringify(log) })
           const saved = (await res.json()) as Log
+          // Update localStorage with server response
+          const updatedLocal = readLocal().map((l) => (l.id === saved.id ? saved : l))
+          writeLocal(updatedLocal)
           return { backend: 'cloud', logs: sortLogs([...(current?.logs ?? []), saved]) }
         } catch (error) {
           console.error('Failed to create log on cloud, falling back to local:', error)
-          return { backend: 'local', logs: sortLogs([...readLocal(), toLocalLog(log)]) }
+          // Add to sync queue with new format
+          addToSyncQueue({
+            type: 'create_log',
+            endpoint: '/api/logs',
+            payload: log,
+            action: 'POST',
+          })
+          // Data already saved locally above
+          return { backend: 'local', logs: sortLogs([...local, newLog]) }
         }
       },
       {
@@ -112,6 +129,11 @@ export function useLogs() {
   }
 
   async function updateLog(id: string, patch: LogPatch) {
+    // Update localStorage immediately (local-first)
+    const local = readLocal()
+    const updated = local.map((l) => (l.id === id ? { ...l, ...patch } : l))
+    writeLocal(updated)
+
     if (backend === 'local') {
       return applyLocal((all) => all.map((l) => (l.id === id ? { ...l, ...patch } : l)))
     }
@@ -120,10 +142,21 @@ export function useLogs() {
         try {
           const res = await request(`/api/logs/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
           const saved = (await res.json()) as Log
+          // Update localStorage with server response
+          const updatedLocal = readLocal().map((l) => (l.id === saved.id ? saved : l))
+          writeLocal(updatedLocal)
           return { backend: 'cloud', logs: (current?.logs ?? []).map((l) => (l.id === id ? saved : l)) }
         } catch (error) {
           console.error('Failed to update log on cloud, falling back to local:', error)
-          return { backend: 'local', logs: readLocal().map((l) => (l.id === id ? { ...l, ...patch } : l)) }
+          // Add to sync queue with new format
+          addToSyncQueue({
+            type: 'update_log',
+            endpoint: `/api/logs/${id}`,
+            payload: patch,
+            action: 'PUT',
+          })
+          // Data already saved locally above
+          return { backend: 'local', logs: updated }
         }
       },
       {
@@ -138,6 +171,11 @@ export function useLogs() {
   }
 
   async function deleteLog(id: string) {
+    // Delete from localStorage immediately (local-first)
+    const local = readLocal()
+    const filtered = local.filter((l) => l.id !== id)
+    writeLocal(filtered)
+
     if (backend === 'local') return applyLocal((all) => all.filter((l) => l.id !== id))
     await mutate(
       async (current) => {
@@ -146,7 +184,15 @@ export function useLogs() {
           return { backend: 'cloud', logs: (current?.logs ?? []).filter((l) => l.id !== id) }
         } catch (error) {
           console.error('Failed to delete log on cloud, falling back to local:', error)
-          return { backend: 'local', logs: readLocal().filter((l) => l.id !== id) }
+          // Add to sync queue with new format
+          addToSyncQueue({
+            type: 'delete_log',
+            endpoint: `/api/logs/${id}`,
+            payload: null,
+            action: 'DELETE',
+          })
+          // Data already deleted locally above
+          return { backend: 'local', logs: filtered }
         }
       },
       {
