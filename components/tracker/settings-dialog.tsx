@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Cloud, Database, HardDrive, Trash2, X, Baby } from 'lucide-react'
+import { Database, HardDrive, Trash2, X, Baby } from 'lucide-react'
 import type { LogsApi } from '@/hooks/use-logs'
 import type { BabyProfileApi } from '@/hooks/use-baby-profile'
 import type { Gender } from '@/lib/types'
@@ -132,19 +132,11 @@ export function SettingsDialog({
         <p className="text-xs text-muted-foreground">{version}</p>
 
         <div className="flex items-center gap-3 rounded-2xl bg-secondary p-3 text-sm">
-          {api.backend === 'cloud' ? (
-            <Cloud className="size-5 text-diaper" aria-hidden />
-          ) : (
-            <HardDrive className="size-5 text-feed" aria-hidden />
-          )}
+          <HardDrive className="size-5 text-feed" aria-hidden />
           <div className="flex flex-col">
-            <span className="font-medium">
-              {api.backend === 'cloud' ? 'Synced to cloud' : 'Saved on this device'}
-            </span>
+            <span className="font-medium">Saved on this device</span>
             <span className="text-xs text-muted-foreground">
-              {api.backend === 'cloud'
-                ? 'Logs are stored in Supabase.'
-                : 'Supabase is not configured, so logs are stored in this browser.'}
+              Data is stored locally on this phone.
             </span>
           </div>
         </div>

@@ -2,7 +2,7 @@
 
 import { useLiveQuery } from 'dexie-react-hooks'
 import type { VitaminLog, VitaminLogPatch, NewVitaminLog } from '@/lib/types'
-import { db, deviceId, type DbVitaminLog } from '@/lib/db'
+import { db, getDeviceIdSync, type DbVitaminLog } from '@/lib/db'
 
 function sortLogs(logs: VitaminLog[]) {
   return [...logs].sort((a, b) => b.given_date.localeCompare(a.given_date))
@@ -41,7 +41,7 @@ export function useVitaminLogs() {
       created_at: now,
       updated_at: now,
       deleted_at: null,
-      device_id: deviceId,
+      device_id: getDeviceIdSync(),
       user_id: null,
       server_updated_at: null,
       sync_status: 'pending',

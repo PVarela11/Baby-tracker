@@ -26,6 +26,12 @@ importers:
       cn:
         specifier: ^0.4.0
         version: 0.4.0
+      dexie:
+        specifier: ^4.0.8
+        version: 4.4.6
+      dexie-react-hooks:
+        specifier: ^1.1.7
+        version: 1.1.7(@types/react@19.2.14)(dexie@4.4.6)(react@19.2.4)
       lucide-react:
         specifier: ^1.16.0
         version: 1.17.0(react@19.2.4)
@@ -938,6 +944,16 @@ packages:
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
+
+  dexie-react-hooks@1.1.7:
+    resolution: {integrity: sha512-Lwv5W0Hk+uOW3kGnsU9GZoR1er1B7WQ5DSdonoNG+focTNeJbHW6vi6nBoX534VKI3/uwHebYzSw1fwY6a7mTw==}
+    peerDependencies:
+      '@types/react': '>=16'
+      dexie: ^3.2 || ^4.0.1-alpha
+      react: '>=16'
+
+  dexie@4.4.6:
+    resolution: {integrity: sha512-hJP/BO6mjB+tX6hToIO1kmxYLNmun90wYbfcoAoLpKEyDYal/k33dg0TAfoUe2TDsbbLoVIzljJ3BN2UbR5EOg==}
 
   diff@8.0.4:
     resolution: {integrity: sha512-DPi0FmjiSU5EvQV0++GFDOJ9ASQUVFh5kD+OzOnYdi7n3Wpm9hWWGfB/O2blfHcMVTL5WkQXSnRiK9makhrcnw==}
@@ -2681,6 +2697,14 @@ snapshots:
   dequal@2.0.3: {}
 
   detect-libc@2.1.2: {}
+
+  dexie-react-hooks@1.1.7(@types/react@19.2.14)(dexie@4.4.6)(react@19.2.4):
+    dependencies:
+      '@types/react': 19.2.14
+      dexie: 4.4.6
+      react: 19.2.4
+
+  dexie@4.4.6: {}
 
   diff@8.0.4: {}
 

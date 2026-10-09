@@ -62,17 +62,29 @@ export interface DbBabyProfile {
   sync_status: SyncStatus
 }
 
-const DEVICE_ID_KEY = 'baby-tracker:device-id'
+export interface DbMeta {
+  key: string
+  value: string
+}
 
-function getOrCreateDeviceId(): string {
+const DEVICE_ID_KEY = 'device_id'
+
+async function getOrCreateDeviceId(): Promise<string> {
   try {
-    const existing = localStorage.getItem(DEVICE_ID_KEY)
-    if (existing) return existing
+    const existing = await db.meta.get(DEVICE_ID_KEY)
+    if (existing) return existing.value
+
     const newId = crypto.randomUUID()
-    localStorage.setItem(DEVICE_ID_KEY, newId)
+    await db.meta.put({ key: DEVICE_ID_KEY, value: newId })
     return newId
   } catch {
-    return crypto.randomUUID()
+    // Fallback to localStorage if IndexedDB is not available
+    const localKey = 'baby-tracker:device-id'
+    const existing = localStorage.getItem(localKey)
+    if (existing) return existing
+    const newId = crypto.randomUUID()
+    localStorage.setItem(localKey, newId)
+    return newId
   }
 }
 
@@ -81,6 +93,7 @@ class BabyTrackerDatabase extends Dexie {
   vitamin_logs!: Table<DbVitaminLog>
   growth_logs!: Table<DbGrowthLog>
   baby_profile!: Table<DbBabyProfile>
+  meta!: Table<DbMeta>
 
   constructor() {
     super('BabyTrackerDB')
@@ -89,9 +102,34 @@ class BabyTrackerDatabase extends Dexie {
       vitamin_logs: 'id, given_date, created_at, updated_at, deleted_at, device_id, sync_status, server_updated_at',
       growth_logs: 'id, log_date, created_at, updated_at, deleted_at, device_id, sync_status, server_updated_at',
       baby_profile: 'id, updated_at, deleted_at, device_id, sync_status, server_updated_at',
+      meta: 'key',
     })
   }
 }
 
 export const db = new BabyTrackerDatabase()
-export const deviceId = getOrCreateDeviceId()
+
+// Device ID is initialized asynchronously
+let cachedDeviceId: string | null = null
+
+export async function getDeviceId(): Promise<string> {
+  if (cachedDeviceId) return cachedDeviceId
+  cachedDeviceId = await getOrCreateDeviceId()
+  return cachedDeviceId
+}
+
+// Synchronous version for immediate use (falls back to localStorage)
+export function getDeviceIdSync(): string {
+  if (cachedDeviceId) return cachedDeviceId
+  const localKey = 'baby-tracker:device-id'
+  const existing = localStorage.getItem(localKey)
+  if (existing) {
+    cachedDeviceId = existing
+    return existing
+  }
+  const newId = crypto.randomUUID()
+  localStorage.setItem(localKey, newId)
+  cachedDeviceId = newId
+  return newId
+}
+

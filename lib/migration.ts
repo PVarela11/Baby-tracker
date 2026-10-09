@@ -1,4 +1,4 @@
-import { db, deviceId, type DbLog, type DbVitaminLog, type DbGrowthLog, type DbBabyProfile } from './db'
+import { db, getDeviceId, type DbLog, type DbVitaminLog, type DbGrowthLog, type DbBabyProfile } from './db'
 import type { Log, VitaminLog, GrowthLog, BabyProfile } from './types'
 
 const MIGRATION_COMPLETED_KEY = 'baby-tracker:migration-completed'
@@ -43,6 +43,7 @@ async function migrateLogs(): Promise<void> {
   if (!logs || logs.length === 0) return
 
   const now = new Date().toISOString()
+  const deviceId = await getDeviceId()
   const imported: string[] = []
 
   for (const log of logs) {
@@ -77,7 +78,7 @@ async function migrateLogs(): Promise<void> {
       breast_side: log.breast_side,
       diaper_type: log.diaper_type,
       notes: log.notes,
-      created_at: log.created_at,
+      created_at: new Date(log.created_at).toISOString(),
       updated_at: now,
       deleted_at: null,
       device_id: deviceId,
@@ -98,6 +99,7 @@ async function migrateVitaminLogs(): Promise<void> {
   if (!logs || logs.length === 0) return
 
   const now = new Date().toISOString()
+  const deviceId = await getDeviceId()
   const imported: string[] = []
 
   for (const log of logs) {
@@ -129,7 +131,7 @@ async function migrateVitaminLogs(): Promise<void> {
       given_date: log.given_date,
       given_time: log.given_time,
       notes: log.notes,
-      created_at: log.created_at,
+      created_at: new Date(log.created_at).toISOString(),
       updated_at: now,
       deleted_at: null,
       device_id: deviceId,
@@ -150,6 +152,7 @@ async function migrateGrowthLogs(): Promise<void> {
   if (!logs || logs.length === 0) return
 
   const now = new Date().toISOString()
+  const deviceId = await getDeviceId()
   const imported: string[] = []
 
   for (const log of logs) {
@@ -183,7 +186,7 @@ async function migrateGrowthLogs(): Promise<void> {
       height_cm: log.height_cm,
       head_circumference_cm: log.head_circumference_cm,
       notes: log.notes,
-      created_at: log.created_at,
+      created_at: new Date(log.created_at).toISOString(),
       updated_at: now,
       deleted_at: null,
       device_id: deviceId,
@@ -204,6 +207,7 @@ async function migrateBabyProfile(): Promise<void> {
   if (!profile) return
 
   const now = new Date().toISOString()
+  const deviceId = await getDeviceId()
 
   const existing = await db.baby_profile.where('id').equals(1).first()
   if (existing) {
@@ -237,7 +241,9 @@ async function migrateSyncQueue(): Promise<void> {
   const queue = getLocal<any[]>(SYNC_QUEUE_KEY)
   if (!queue || queue.length === 0) return
 
-  console.log(`Found ${queue.length} pending sync operations in queue - data already marked as pending during migration`)
+  console.log(`Found ${queue.length} pending sync operations in queue`)
+  // The sync queue operations are already represented as sync_status='pending' in the migrated data
+  // No additional action needed - the queue info is captured in the migrated records
 }
 
 export async function runMigration(): Promise<void> {
@@ -255,6 +261,25 @@ export async function runMigration(): Promise<void> {
     await migrateGrowthLogs()
     await migrateBabyProfile()
     await migrateSyncQueue()
+
+    // Verify migration counts before clearing
+    const logsCount = await db.logs.where('deleted_at').equals(null).count()
+    const vitaminCount = await db.vitamin_logs.where('deleted_at').equals(null).count()
+    const growthCount = await db.growth_logs.where('deleted_at').equals(null).count()
+    const profileCount = await db.baby_profile.count()
+
+    console.log(`Migration verification: ${logsCount} logs, ${vitaminCount} vitamin logs, ${growthCount} growth logs, ${profileCount} profile(s)`)
+
+    // Backup old keys before clearing (in case rollback is needed)
+    const backup = {
+      logs: getLocal<any[]>('baby-tracker:logs'),
+      vitaminLogs: getLocal<any[]>('baby-tracker:vitamin-logs'),
+      growthLogs: getLocal<any[]>('baby-tracker:growth-logs'),
+      babyProfile: getLocal<any>('baby-tracker:baby-profile'),
+      syncQueue: getLocal<any[]>(SYNC_QUEUE_KEY),
+    }
+    setLocal('baby-tracker:migration-backup', backup)
+    console.log('Migration backup saved to localStorage')
 
     setLocal(MIGRATION_COMPLETED_KEY, true)
     console.log('Migration completed successfully')

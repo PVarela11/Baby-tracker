@@ -2,7 +2,7 @@
 
 import { useLiveQuery } from 'dexie-react-hooks'
 import type { GrowthLog, GrowthLogPatch, NewGrowthLog } from '@/lib/types'
-import { db, deviceId, type DbGrowthLog } from '@/lib/db'
+import { db, getDeviceIdSync, type DbGrowthLog } from '@/lib/db'
 
 function sortLogs(logs: GrowthLog[]) {
   return [...logs].sort((a, b) => b.log_date.localeCompare(a.log_date))
@@ -45,7 +45,7 @@ export function useGrowthLogs() {
       created_at: now,
       updated_at: now,
       deleted_at: null,
-      device_id: deviceId,
+      device_id: getDeviceIdSync(),
       user_id: null,
       server_updated_at: null,
       sync_status: 'pending',

@@ -2,7 +2,7 @@
 
 import { useLiveQuery } from 'dexie-react-hooks'
 import type { BabyProfile } from '@/lib/types'
-import { db, deviceId, type DbBabyProfile } from '@/lib/db'
+import { db, getDeviceIdSync, type DbBabyProfile } from '@/lib/db'
 
 function dbToBabyProfile(dbProfile: DbBabyProfile | undefined): BabyProfile | null {
   if (!dbProfile) return null
@@ -31,7 +31,7 @@ export function useBabyProfile() {
         gender: profile.gender,
         updated_at: now,
         deleted_at: null,
-        device_id: deviceId,
+        device_id: getDeviceIdSync(),
         user_id: null,
         server_updated_at: null,
         sync_status: 'pending',
