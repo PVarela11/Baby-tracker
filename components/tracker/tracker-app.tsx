@@ -99,7 +99,8 @@ export function TrackerApp() {
     ? `Baby ${babyProfile.profile.name || '—'} • ${calculateAge(babyProfile.profile.date_of_birth)}`
     : 'Baby Tracker'
 
-  const hasSyncError = vitaminApi.syncError || growthApi.syncError || babyProfile.syncError
+  // const hasSyncError = vitaminApi.syncError || growthApi.syncError || babyProfile.syncError
+  const hasSyncError = false // TODO: read from db.sync_status when sync engine is built
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col">
@@ -168,7 +169,7 @@ export function TrackerApp() {
         {hasSyncError && (
           <div className="flex items-center gap-2 rounded-2xl border border-blue-500/40 bg-blue-500/10 px-4 py-3 text-sm text-blue-700">
             <AlertCircle className="size-4" aria-hidden />
-            <span>{vitaminApi.syncError || growthApi.syncError || babyProfile.syncError}</span>
+            <span>Changes saved locally - will sync when online</span>
           </div>
         )}
 
