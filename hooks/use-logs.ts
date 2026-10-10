@@ -31,9 +31,8 @@ function dbToLog(dbLog: DbLog): Log {
 export function useLogs() {
   const logs = useLiveQuery(
     () => db.logs
-      .where('deleted_at')
-      .equals(null)
       .toArray()
+      .then((dbLogs) => dbLogs.filter((log) => !log.deleted_at))
       .then((dbLogs) => sortLogs(dbLogs.map(dbToLog))),
     [],
     []
@@ -90,9 +89,13 @@ export function useLogs() {
   async function clearAll() {
     const now = new Date().toISOString()
 
+    const logs = await db.logs.toArray()
+    const activeLogs = logs.filter((log) => !log.deleted_at)
+    const ids = activeLogs.map((log) => log.id)
+
     await db.logs
-      .where('deleted_at')
-      .equals(null)
+      .where('id')
+      .anyOf(ids)
       .modify({
         deleted_at: now,
         updated_at: now,

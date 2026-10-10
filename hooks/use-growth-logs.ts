@@ -23,9 +23,8 @@ function dbToGrowthLog(dbLog: DbGrowthLog): GrowthLog {
 export function useGrowthLogs() {
   const logs = useLiveQuery(
     () => db.growth_logs
-      .where('deleted_at')
-      .equals(null)
       .toArray()
+      .then((dbLogs) => dbLogs.filter((log) => !log.deleted_at))
       .then((dbLogs) => sortLogs(dbLogs.map(dbToGrowthLog))),
     [],
     []

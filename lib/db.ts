@@ -104,6 +104,13 @@ class BabyTrackerDatabase extends Dexie {
       baby_profile: 'id, updated_at, deleted_at, device_id, sync_status, server_updated_at',
       meta: 'key',
     })
+    this.version(2).stores({
+      logs: 'id, event_type, start_time, created_at, updated_at, device_id, sync_status, server_updated_at',
+      vitamin_logs: 'id, given_date, created_at, updated_at, device_id, sync_status, server_updated_at',
+      growth_logs: 'id, log_date, created_at, updated_at, device_id, sync_status, server_updated_at',
+      baby_profile: 'id, updated_at, device_id, sync_status, server_updated_at',
+      meta: 'key',
+    })
   }
 }
 

@@ -21,9 +21,8 @@ function dbToVitaminLog(dbLog: DbVitaminLog): VitaminLog {
 export function useVitaminLogs() {
   const logs = useLiveQuery(
     () => db.vitamin_logs
-      .where('deleted_at')
-      .equals(null)
       .toArray()
+      .then((dbLogs) => dbLogs.filter((log) => !log.deleted_at))
       .then((dbLogs) => sortLogs(dbLogs.map(dbToVitaminLog))),
     [],
     []

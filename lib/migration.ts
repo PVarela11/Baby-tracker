@@ -38,9 +38,9 @@ function removeLocal(key: string): void {
   }
 }
 
-async function migrateLogs(): Promise<void> {
+async function migrateLogs(): Promise<string[]> {
   const logs = getLocal<Log[]>('baby-tracker:logs')
-  if (!logs || logs.length === 0) return
+  if (!logs || logs.length === 0) return []
 
   const now = new Date().toISOString()
   const deviceId = await getDeviceId()
@@ -92,11 +92,12 @@ async function migrateLogs(): Promise<void> {
   }
 
   console.log(`Migrated ${imported.length} logs`)
+  return imported
 }
 
-async function migrateVitaminLogs(): Promise<void> {
+async function migrateVitaminLogs(): Promise<string[]> {
   const logs = getLocal<VitaminLog[]>('baby-tracker:vitamin-logs')
-  if (!logs || logs.length === 0) return
+  if (!logs || logs.length === 0) return []
 
   const now = new Date().toISOString()
   const deviceId = await getDeviceId()
@@ -145,11 +146,12 @@ async function migrateVitaminLogs(): Promise<void> {
   }
 
   console.log(`Migrated ${imported.length} vitamin logs`)
+  return imported
 }
 
-async function migrateGrowthLogs(): Promise<void> {
+async function migrateGrowthLogs(): Promise<string[]> {
   const logs = getLocal<GrowthLog[]>('baby-tracker:growth-logs')
-  if (!logs || logs.length === 0) return
+  if (!logs || logs.length === 0) return []
 
   const now = new Date().toISOString()
   const deviceId = await getDeviceId()
@@ -200,6 +202,7 @@ async function migrateGrowthLogs(): Promise<void> {
   }
 
   console.log(`Migrated ${imported.length} growth logs`)
+  return imported
 }
 
 async function migrateBabyProfile(): Promise<void> {
@@ -253,22 +256,29 @@ export async function runMigration(): Promise<void> {
     return
   }
 
-  console.log('Starting migration from localStorage to IndexedDB...')
+  console.log('Starting migration from localStorage to localStorage to IndexedDB...')
 
   try {
-    await migrateLogs()
-    await migrateVitaminLogs()
-    await migrateGrowthLogs()
+    const logsIds = await migrateLogs()
+    const vitaminIds = await migrateVitaminLogs()
+    const growthIds = await migrateGrowthLogs()
     await migrateBabyProfile()
     await migrateSyncQueue()
 
-    // Verify migration counts before clearing
-    const logsCount = await db.logs.where('deleted_at').equals(null).count()
-    const vitaminCount = await db.vitamin_logs.where('deleted_at').equals(null).count()
-    const growthCount = await db.growth_logs.where('deleted_at').equals(null).count()
-    const profileCount = await db.baby_profile.count()
+    // Verify migration by checking that all imported IDs exist in Dexie
+    const logsVerified = await db.logs.bulkGet(logsIds)
+    const vitaminVerified = await db.vitamin_logs.bulkGet(vitaminIds)
+    const growthVerified = await db.growth_logs.bulkGet(growthIds)
 
-    console.log(`Migration verification: ${logsCount} logs, ${vitaminCount} vitamin logs, ${growthCount} growth logs, ${profileCount} profile(s)`)
+    const logsSuccess = logsVerified.every((r) => r !== undefined)
+    const vitaminSuccess = vitaminVerified.every((r) => r !== undefined)
+    const growthSuccess = growthVerified.every((r) => r !== undefined)
+
+    if (!logsSuccess || !vitaminSuccess || !growthSuccess) {
+      throw new Error('Migration verification failed: some records not found in IndexedDB')
+    }
+
+    console.log(`Migration verification: ${logsIds.length} logs, ${vitaminIds.length} vitamin logs, ${growthIds.length} growth logs`)
 
     // Backup old keys before clearing (in case rollback is needed)
     const backup = {
