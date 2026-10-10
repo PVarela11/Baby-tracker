@@ -1,14 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { CalendarDays, ChartGantt, Settings, Cloud, HardDrive, CheckCircle, AlertCircle, Baby, WifiOff, Check } from 'lucide-react'
+import { useState } from 'react'
+import { CalendarDays, ChartGantt, Settings, HardDrive, Baby } from 'lucide-react'
 import { useLogs } from '@/hooks/use-logs'
 import { useVitaminLogs } from '@/hooks/use-vitamin-logs'
 import { useGrowthLogs } from '@/hooks/use-growth-logs'
 import { useBabyProfile } from '@/hooks/use-baby-profile'
 import { cn } from '@/lib/utils'
 import { calculateAge } from '@/lib/time'
-import { setupSyncListener, getSyncStatus, clearSyncStatus, getSyncQueue, processSyncQueue, setSyncStatus } from '@/lib/sync-queue'
 import { DateNav } from './date-nav'
 import { DayLog } from './day-log'
 import { DiaperControl } from './diaper-control'
@@ -19,9 +18,8 @@ import { StatusCounters } from './status-counters'
 import { TimelineView } from './timeline-view'
 import { VitaminControl } from './vitamin-control'
 import { GrowthTracker } from './growth-tracker'
-import { SyncDialog } from './sync-dialog'
 
-const APP_VERSION = 'v1.6.0 - Structural Fixes: Duplicate Prevention, Chronological Sorting, Sync Queue, SW Fallback'
+const APP_VERSION = 'v1.6.0 - IndexedDB Migration'
 
 type Tab = 'today' | 'timeline' | 'growth'
 
@@ -33,73 +31,10 @@ export function TrackerApp() {
   const [tab, setTab] = useState<Tab>('today')
   const [date, setDate] = useState(() => new Date())
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
-  const [syncStatus, setSyncStatus] = useState<{ success: boolean; message: string } | null>(null)
-  const [syncDialogOpen, setSyncDialogOpen] = useState(false)
-
-  useEffect(() => {
-    // Check for existing sync status on mount
-    const existingStatus = getSyncStatus()
-    if (existingStatus) {
-      setSyncStatus(existingStatus)
-      // Clear after 5 seconds
-      setTimeout(() => {
-        clearSyncStatus()
-        setSyncStatus(null)
-      }, 5000)
-    }
-
-    const handleOnline = () => {
-      setIsOnline(true)
-      // Check if there are pending items to sync
-      const queue = getSyncQueue()
-      if (queue.length > 0) {
-        setSyncDialogOpen(true)
-      }
-    }
-
-    const handleOffline = () => setIsOnline(false)
-
-    window.addEventListener('online', handleOnline)
-    window.addEventListener('offline', handleOffline)
-
-    return () => {
-      window.removeEventListener('online', handleOnline)
-      window.removeEventListener('offline', handleOffline)
-    }
-  }, [])
-
-  const handleSyncToCloud = async () => {
-    setSyncDialogOpen(false)
-    await processSyncQueue(() => {
-      // Refresh all data after sync completes
-      api.mutate()
-      vitaminApi.mutate()
-      growthApi.mutate()
-      babyProfile.mutate()
-      // Show success toast after sync completes
-      const status = getSyncStatus()
-      if (status?.success) {
-        setSyncStatus(status)
-        setTimeout(() => {
-          clearSyncStatus()
-          setSyncStatus(null)
-        }, 5000)
-      }
-    })
-  }
-
-  const handleKeepLocal = () => {
-    setSyncDialogOpen(false)
-    // Clear the sync queue as user chose to keep local only
-    // The items remain in localStorage
-  }
 
   const ageDisplay = babyProfile.profile?.date_of_birth
     ? `Baby ${babyProfile.profile.name || '—'} • ${calculateAge(babyProfile.profile.date_of_birth)}`
     : 'Baby Tracker'
-
-  const hasSyncError = vitaminApi.syncError || growthApi.syncError || babyProfile.syncError
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col">
@@ -112,21 +47,12 @@ export function TrackerApp() {
           <div
             className={cn(
               'flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
-              api.backend === 'cloud' ? 'bg-green-500/10 text-green-600' : 'bg-amber-500/10 text-amber-600',
+              'bg-amber-500/10 text-amber-600',
             )}
-            title={api.backend === 'cloud' ? 'Synced to cloud' : 'Saving locally'}
+            title="Saved on this phone"
           >
-            {api.backend === 'cloud' ? (
-              <>
-                <CheckCircle className="size-3" aria-hidden />
-                Synced
-              </>
-            ) : (
-              <>
-                <AlertCircle className="size-3" aria-hidden />
-                Offline
-              </>
-            )}
+            <HardDrive className="size-3" aria-hidden />
+            Local
           </div>
         </div>
         <button
@@ -140,45 +66,6 @@ export function TrackerApp() {
       </header>
 
       <main className="flex flex-1 flex-col gap-4 px-4 pb-32">
-        {!isOnline && (
-          <div className="flex items-center gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700">
-            <WifiOff className="size-4" aria-hidden />
-            <span>Offline Mode — Changes saved locally</span>
-          </div>
-        )}
-
-        {syncStatus && (
-          <div
-            className={cn(
-              'flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm',
-              syncStatus.success
-                ? 'border-green-500/40 bg-green-500/10 text-green-700'
-                : 'border-red-500/40 bg-red-500/10 text-red-700',
-            )}
-          >
-            {syncStatus.success ? (
-              <Check className="size-4" aria-hidden />
-            ) : (
-              <AlertCircle className="size-4" aria-hidden />
-            )}
-            <span>{syncStatus.message}</span>
-          </div>
-        )}
-
-        {hasSyncError && (
-          <div className="flex items-center gap-2 rounded-2xl border border-blue-500/40 bg-blue-500/10 px-4 py-3 text-sm text-blue-700">
-            <AlertCircle className="size-4" aria-hidden />
-            <span>{vitaminApi.syncError || growthApi.syncError || babyProfile.syncError}</span>
-          </div>
-        )}
-
-        {api.error ? (
-          <p role="alert" className="rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm">
-            {api.backend === 'local'
-              ? 'Could not sync to cloud. Changes are saved locally and will sync when connection is restored.'
-              : 'Could not reach the server. Check your connection and try again.'}
-          </p>
-        ) : null}
 
         {tab === 'today' && (
           <>
@@ -226,13 +113,6 @@ export function TrackerApp() {
         api={api}
         version={APP_VERSION}
         babyProfile={babyProfile}
-      />
-
-      <SyncDialog
-        open={syncDialogOpen}
-        pendingCount={getSyncQueue().length}
-        onSync={handleSyncToCloud}
-        onKeepLocal={handleKeepLocal}
       />
     </div>
   )

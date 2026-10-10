@@ -7,7 +7,6 @@ import type { VitaminLogsApi } from '@/hooks/use-vitamin-logs'
 import { formatClock, startOfDay } from '@/lib/time'
 import type { VitaminLog } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { isVitaminLogPendingSync } from '@/lib/sync-queue'
 
 export function VitaminControl({ api }: { api: VitaminLogsApi }) {
   const now = useNow(60_000)
@@ -40,12 +39,7 @@ export function VitaminControl({ api }: { api: VitaminLogsApi }) {
     if (!todayLog) return
     setBusy(true)
     try {
-      // Delete from localStorage immediately
-      const local = api.logs.filter((l) => l.id !== todayLog.id)
-      localStorage.setItem('baby-tracker:vitamin-logs', JSON.stringify(local))
-
-      // Try to delete from Supabase directly
-      await api.deleteVitaminLog(todayLog.id, todayLog.given_date)
+      await api.deleteVitaminLog(todayLog.id)
     } finally {
       setBusy(false)
     }
@@ -70,7 +64,8 @@ export function VitaminControl({ api }: { api: VitaminLogsApi }) {
   }
 
   if (todayLog) {
-    const pendingSync = isVitaminLogPendingSync(todayLog.id)
+    // const pendingSync = isVitaminLogPendingSync(todayLog.id)
+    const pendingSync = false // TODO: read from db.sync_status when sync engine is built
     return (
       <section aria-labelledby="vitamin-heading" className="flex flex-col gap-3 rounded-3xl border border-green-500/40 bg-green-500/10 p-4">
         <div className="flex items-center justify-between">

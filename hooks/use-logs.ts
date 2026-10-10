@@ -1,31 +1,11 @@
 'use client'
 
-import useSWR from 'swr'
+import { useLiveQuery } from 'dexie-react-hooks'
 import { generateSampleLogs } from '@/lib/sample-data'
 import type { Log, LogPatch, NewLog } from '@/lib/types'
-import { addToSyncQueue } from '@/lib/sync-queue'
+import { db, getDeviceIdSync, type DbLog } from '@/lib/db'
 
 export type Backend = 'cloud' | 'local'
-
-interface LogsState {
-  backend: Backend
-  logs: Log[]
-}
-
-const LOCAL_KEY = 'baby-tracker:logs'
-
-function readLocal(): Log[] {
-  try {
-    const raw = localStorage.getItem(LOCAL_KEY)
-    return raw ? (JSON.parse(raw) as Log[]) : []
-  } catch {
-    return []
-  }
-}
-
-function writeLocal(logs: Log[]) {
-  localStorage.setItem(LOCAL_KEY, JSON.stringify(logs))
-}
 
 function sortLogs(logs: Log[]) {
   return [...logs].sort((a, b) => {
@@ -35,196 +15,119 @@ function sortLogs(logs: Log[]) {
   })
 }
 
-function toLocalLog(log: NewLog): Log {
-  return { ...log, id: crypto.randomUUID(), created_at: new Date().toISOString() }
-}
-
-async function fetchLogs(): Promise<LogsState> {
-  // Initialize from localStorage first
-  const localLogs = sortLogs(readLocal())
-
-  try {
-    const res = await fetch('/api/logs', { cache: 'no-store' })
-    if (res.status === 503) return { backend: 'local', logs: localLogs }
-    if (!res.ok) {
-      console.error('Failed to fetch logs from cloud, using local storage')
-      return { backend: 'local', logs: localLogs }
-    }
-    const cloudLogs = (await res.json()) as Log[]
-    // If cloud returns empty or fails, use local data
-    if (!cloudLogs || cloudLogs.length === 0) {
-      return { backend: 'local', logs: localLogs }
-    }
-    return { backend: 'cloud', logs: cloudLogs }
-  } catch (error) {
-    console.error('Failed to fetch logs from cloud, falling back to local storage:', error)
-    return { backend: 'local', logs: localLogs }
-  }
-}
-
-async function request(url: string, init: RequestInit) {
-  try {
-    const res = await fetch(url, {
-      ...init,
-      headers: { 'Content-Type': 'application/json', ...init.headers },
-    })
-    if (!res.ok) throw new Error('Request failed')
-    return res
-  } catch (error) {
-    console.error('Request failed:', error)
-    throw error
+function dbToLog(dbLog: DbLog): Log {
+  return {
+    id: dbLog.id,
+    event_type: dbLog.event_type,
+    start_time: dbLog.start_time,
+    end_time: dbLog.end_time,
+    breast_side: dbLog.breast_side,
+    diaper_type: dbLog.diaper_type,
+    notes: dbLog.notes,
+    created_at: dbLog.created_at,
   }
 }
 
 export function useLogs() {
-  const { data, error, isLoading, mutate } = useSWR<LogsState>('logs', fetchLogs, {
-    refreshInterval: 60_000,
-    revalidateOnFocus: true,
-  })
-
-  const backend: Backend = data?.backend ?? 'cloud'
-  const logs = data?.logs ?? []
-
-  function applyLocal(update: (logs: Log[]) => Log[]) {
-    const next = sortLogs(update(readLocal()))
-    writeLocal(next)
-    return mutate({ backend: 'local', logs: next }, { revalidate: false })
-  }
+  const logs = useLiveQuery(
+    () => db.logs
+      .toArray()
+      .then((dbLogs) => dbLogs.filter((log) => !log.deleted_at))
+      .then((dbLogs) => sortLogs(dbLogs.map(dbToLog))),
+    [],
+    []
+  )
 
   async function createLog(log: NewLog) {
-    // Save to localStorage immediately (local-first)
-    const local = readLocal()
-    const newLog = toLocalLog(log)
-    writeLocal([...local, newLog])
+    const now = new Date().toISOString()
+    const id = crypto.randomUUID()
 
-    if (backend === 'local') return applyLocal((all) => [...all, toLocalLog(log)])
-    const optimistic = toLocalLog(log)
-    await mutate(
-      async (current) => {
-        try {
-          const res = await request('/api/logs', { method: 'POST', body: JSON.stringify(log) })
-          const saved = (await res.json()) as Log
-          // Update localStorage with server response
-          const updatedLocal = readLocal().map((l) => (l.id === saved.id ? saved : l))
-          writeLocal(updatedLocal)
-          return { backend: 'cloud', logs: sortLogs([...(current?.logs ?? []), saved]) }
-        } catch (error) {
-          console.error('Failed to create log on cloud, falling back to local:', error)
-          // Add to sync queue with new format, including local ID for tracking
-          addToSyncQueue({
-            type: 'create_log',
-            endpoint: '/api/logs',
-            payload: { ...log, localId: newLog.id },
-            action: 'POST',
-          })
-          // Data already saved locally above
-          return { backend: 'local', logs: sortLogs([...local, newLog]) }
-        }
-      },
-      {
-        optimisticData: (current) => ({
-          backend: 'cloud',
-          logs: sortLogs([...(current?.logs ?? []), optimistic]),
-        }),
-        rollbackOnError: true,
-        revalidate: false,
-      },
-    )
+    await db.logs.add({
+      id,
+      event_type: log.event_type,
+      start_time: log.start_time,
+      end_time: log.end_time,
+      breast_side: log.breast_side,
+      diaper_type: log.diaper_type,
+      notes: log.notes,
+      created_at: now,
+      updated_at: now,
+      deleted_at: null,
+      device_id: getDeviceIdSync(),
+      user_id: null,
+      server_updated_at: null,
+      sync_status: 'pending',
+    })
   }
 
   async function updateLog(id: string, patch: LogPatch) {
-    // Update localStorage immediately (local-first)
-    const local = readLocal()
-    const updated = local.map((l) => (l.id === id ? { ...l, ...patch } : l))
-    writeLocal(updated)
+    const now = new Date().toISOString()
 
-    if (backend === 'local') {
-      return applyLocal((all) => all.map((l) => (l.id === id ? { ...l, ...patch } : l)))
-    }
-    await mutate(
-      async (current) => {
-        try {
-          const res = await request(`/api/logs/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
-          const saved = (await res.json()) as Log
-          // Update localStorage with server response
-          const updatedLocal = readLocal().map((l) => (l.id === saved.id ? saved : l))
-          writeLocal(updatedLocal)
-          return { backend: 'cloud', logs: (current?.logs ?? []).map((l) => (l.id === id ? saved : l)) }
-        } catch (error) {
-          console.error('Failed to update log on cloud, falling back to local:', error)
-          // Add to sync queue with new format
-          addToSyncQueue({
-            type: 'update_log',
-            endpoint: `/api/logs/${id}`,
-            payload: patch,
-            action: 'PUT',
-          })
-          // Data already saved locally above
-          return { backend: 'local', logs: updated }
-        }
-      },
-      {
-        optimisticData: (current) => ({
-          backend: 'cloud',
-          logs: (current?.logs ?? []).map((l) => (l.id === id ? { ...l, ...patch } : l)),
-        }),
-        rollbackOnError: true,
-        revalidate: false,
-      },
-    )
+    await db.logs
+      .where('id')
+      .equals(id)
+      .modify({
+        ...patch,
+        updated_at: now,
+        sync_status: 'pending',
+      })
   }
 
   async function deleteLog(id: string) {
-    // Delete from localStorage immediately (local-first)
-    const local = readLocal()
-    const filtered = local.filter((l) => l.id !== id)
-    writeLocal(filtered)
+    const now = new Date().toISOString()
 
-    if (backend === 'local') return applyLocal((all) => all.filter((l) => l.id !== id))
-    await mutate(
-      async (current) => {
-        try {
-          await request(`/api/logs/${id}`, { method: 'DELETE' })
-          return { backend: 'cloud', logs: (current?.logs ?? []).filter((l) => l.id !== id) }
-        } catch (error) {
-          console.error('Failed to delete log on cloud, falling back to local:', error)
-          // Add to sync queue with new format
-          addToSyncQueue({
-            type: 'delete_log',
-            endpoint: `/api/logs/${id}`,
-            payload: null,
-            action: 'DELETE',
-          })
-          // Data already deleted locally above
-          return { backend: 'local', logs: filtered }
-        }
-      },
-      {
-        optimisticData: (current) => ({
-          backend: 'cloud',
-          logs: (current?.logs ?? []).filter((l) => l.id !== id),
-        }),
-        rollbackOnError: true,
-        revalidate: false,
-      },
-    )
+    await db.logs
+      .where('id')
+      .equals(id)
+      .modify({
+        deleted_at: now,
+        updated_at: now,
+        sync_status: 'pending',
+      })
   }
 
   async function clearAll() {
-    if (backend === 'local') return applyLocal(() => [])
-    await request('/api/logs', { method: 'DELETE' })
-    await mutate()
+    const now = new Date().toISOString()
+
+    const logs = await db.logs.toArray()
+    const activeLogs = logs.filter((log) => !log.deleted_at)
+    const ids = activeLogs.map((log) => log.id)
+
+    await db.logs
+      .where('id')
+      .anyOf(ids)
+      .modify({
+        deleted_at: now,
+        updated_at: now,
+        sync_status: 'pending',
+      })
   }
 
   async function loadSample() {
-    if (backend === 'local') {
-      return applyLocal((all) => [...all, ...generateSampleLogs(7).map(toLocalLog)])
-    }
-    await request('/api/logs/sample', { method: 'POST' })
-    await mutate()
+    const now = new Date().toISOString()
+    const samples = generateSampleLogs(7)
+
+    await db.logs.bulkAdd(
+      samples.map((log) => ({
+        id: crypto.randomUUID(),
+        event_type: log.event_type,
+        start_time: log.start_time,
+        end_time: log.end_time,
+        breast_side: log.breast_side,
+        diaper_type: log.diaper_type,
+        notes: log.notes,
+        created_at: log.created_at,
+        updated_at: now,
+        deleted_at: null,
+        device_id: getDeviceIdSync(),
+        user_id: null,
+        server_updated_at: null,
+        sync_status: 'pending',
+      }))
+    )
   }
 
-  return { logs, backend, error, isLoading, createLog, updateLog, deleteLog, clearAll, loadSample, mutate }
+  return { logs: logs ?? [], backend: 'local' as const, error: null, isLoading: false, createLog, updateLog, deleteLog, clearAll, loadSample, mutate: () => {} }
 }
 
 export type LogsApi = ReturnType<typeof useLogs>
