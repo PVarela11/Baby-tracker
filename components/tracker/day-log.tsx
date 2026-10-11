@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Droplets, Milk, Moon, Trash2, Pencil, X, WifiOff } from 'lucide-react'
+import { Droplets, Milk, Moon, Trash2, Pencil, X, CloudOff } from 'lucide-react'
 import { useNow } from '@/hooks/use-now'
 import type { LogsApi } from '@/hooks/use-logs'
 import { DAY, formatClock, formatDuration, logEnd, logsForDay, overlapMs, startOfDay } from '@/lib/time'
@@ -260,10 +260,7 @@ function LogRow({ log, now, onEdit, onDelete }: { log: Log; now: number; onEdit:
         <span className="truncate text-xs capitalize text-muted-foreground">{detail}</span>
       </div>
       {pendingSync && (
-        <span className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600">
-          <WifiOff className="size-3" aria-hidden />
-          <span>Offline</span>
-        </span>
+        <CloudOff className="size-4 text-muted-foreground" aria-label="Pending sync" />
       )}
       <span className="font-mono text-sm tabular-nums text-muted-foreground">
         {formatClock(log.start_time)}

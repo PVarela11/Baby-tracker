@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Lock, X } from 'lucide-react'
+import { Lock, X, CloudOff } from 'lucide-react'
 import { getSyncEngine } from '@/lib/sync-engine'
 import { cn } from '@/lib/utils'
 
@@ -11,30 +11,48 @@ interface PasscodeScreenProps {
 
 export function PasscodeScreen({ onComplete }: PasscodeScreenProps) {
   const [passcode, setPasscode] = useState('')
-  const [confirmPasscode, setConfirmPasscode] = useState('')
   const [error, setError] = useState('')
-  const [step, setStep] = useState<'enter' | 'confirm'>('enter')
+  const [isVerifying, setIsVerifying] = useState(false)
 
   const syncEngine = getSyncEngine()
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
 
-    if (step === 'enter') {
-      if (passcode.length < 4) {
-        setError('Passcode must be at least 4 characters')
-        return
-      }
-      setStep('confirm')
-    } else {
-      if (passcode !== confirmPasscode) {
-        setError('Passcodes do not match')
-        return
-      }
-      syncEngine.setPasscode(passcode)
-      onComplete()
+    const trimmedPasscode = passcode.trim()
+    if (trimmedPasscode.length < 4) {
+      setError('Passcode must be at least 4 characters')
+      return
     }
+
+    // If online, verify against server
+    if (navigator.onLine) {
+      setIsVerifying(true)
+      try {
+        const response = await fetch('/api/sync/pull', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-sync-passcode': trimmedPasscode,
+          },
+          body: JSON.stringify({}),
+        })
+
+        if (!response.ok) {
+          setError('Wrong passcode')
+          setIsVerifying(false)
+          return
+        }
+      } catch (err) {
+        // Network error - accept passcode but will verify on next sync
+        console.error('Passcode verification failed, accepting anyway:', err)
+      }
+      setIsVerifying(false)
+    }
+
+    syncEngine.setPasscode(trimmedPasscode)
+    onComplete()
   }
 
   const handleSkip = () => {
@@ -53,15 +71,15 @@ export function PasscodeScreen({ onComplete }: PasscodeScreenProps) {
             <div>
               <h2 className="text-lg font-semibold">Family Passcode</h2>
               <p className="text-sm text-muted-foreground">
-                {step === 'enter' ? 'Set a passcode to sync across devices' : 'Confirm your passcode'}
+                {navigator.onLine ? 'Set a passcode to sync across devices' : 'Set a passcode (will verify when online)'}
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={handleSkip}
-            className="flex size-8 items-center justify-center rounded-lg bg-secondary text-muted-foreground hover:text-foreground"
             aria-label="Skip"
+            className="flex size-8 items-center justify-center rounded-lg bg-secondary text-muted-foreground hover:text-foreground"
           >
             <X className="size-4" />
           </button>
@@ -70,16 +88,17 @@ export function PasscodeScreen({ onComplete }: PasscodeScreenProps) {
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div>
             <label htmlFor="passcode" className="mb-2 block text-sm font-medium">
-              {step === 'enter' ? 'Passcode' : 'Confirm passcode'}
+              Passcode
             </label>
             <input
               id="passcode"
               type="password"
-              value={step === 'enter' ? passcode : confirmPasscode}
-              onChange={(e) => (step === 'enter' ? setPasscode(e.target.value) : setConfirmPasscode(e.target.value))}
+              value={passcode}
+              onChange={(e) => setPasscode(e.target.value)}
               placeholder="Enter passcode"
               className="w-full rounded-xl border bg-secondary px-4 py-3 text-base"
               autoFocus
+              disabled={isVerifying}
             />
           </div>
 
@@ -89,33 +108,22 @@ export function PasscodeScreen({ onComplete }: PasscodeScreenProps) {
             </p>
           )}
 
-          <div className="flex gap-2">
-            {step === 'confirm' && (
-              <button
-                type="button"
-                onClick={() => {
-                  setStep('enter')
-                  setConfirmPasscode('')
-                  setError('')
-                }}
-                className="h-12 flex-1 rounded-xl bg-secondary font-medium text-secondary-foreground"
-              >
-                Back
-              </button>
-            )}
-            <button
-              type="submit"
-              className={cn(
-                'h-12 flex-1 rounded-xl bg-primary font-semibold text-primary-foreground',
-                step === 'confirm' && 'flex-[2]'
-              )}
-            >
-              {step === 'enter' ? 'Continue' : 'Set passcode'}
-            </button>
-          </div>
+          <button
+            type="submit"
+            disabled={isVerifying}
+            className="h-12 flex-1 rounded-xl bg-primary font-semibold text-primary-foreground disabled:opacity-60"
+          >
+            {isVerifying ? 'Verifying…' : 'Set passcode'}
+          </button>
 
           <p className="text-center text-xs text-muted-foreground">
-            You can skip this and set it later in settings. Your data will still be saved locally.
+            {!navigator.onLine && (
+              <span className="flex items-center justify-center gap-1">
+                <CloudOff className="size-3" />
+                Offline - passcode will be verified when you reconnect
+              </span>
+            )}
+            {navigator.onLine && 'You can skip this and set it later in settings.'}
           </p>
         </form>
       </div>

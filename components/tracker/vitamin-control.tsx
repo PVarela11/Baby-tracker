@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Check, X, Pencil, AlertCircle, WifiOff } from 'lucide-react'
+import { Check, X, Pencil, AlertCircle, CloudOff } from 'lucide-react'
 import { useNow } from '@/hooks/use-now'
 import type { VitaminLogsApi } from '@/hooks/use-vitamin-logs'
 import { formatClock, startOfDay } from '@/lib/time'
@@ -78,12 +78,7 @@ export function VitaminControl({ api }: { api: VitaminLogsApi }) {
             Vitamin Drops: Given Today
           </h2>
           <div className="flex items-center gap-2">
-            {pendingSync && (
-              <span className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600">
-                <WifiOff className="size-3" aria-hidden />
-                <span>Offline</span>
-              </span>
-            )}
+            {pendingSync && <CloudOff className="size-4 text-muted-foreground" aria-label="Pending sync" />}
             <button
               type="button"
               onClick={() => setEditOpen(true)}

@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Database, HardDrive, Trash2, X, Baby } from 'lucide-react'
+import { Database, Trash2, X, Baby, Cloud, CloudOff, AlertCircle, RefreshCw, Lock } from 'lucide-react'
 import type { LogsApi } from '@/hooks/use-logs'
 import type { BabyProfileApi } from '@/hooks/use-baby-profile'
 import type { Gender } from '@/lib/types'
+import { getSyncEngine } from '@/lib/sync-engine'
 import { cn } from '@/lib/utils'
 
 const THEME_KEY = 'baby-tracker:theme'
@@ -30,6 +31,14 @@ export function SettingsDialog({
   const [babyName, setBabyName] = useState('')
   const [babyDob, setBabyDob] = useState('')
   const [babyGender, setBabyGender] = useState<Gender | ''>('')
+  const [changePasscode, setChangePasscode] = useState(false)
+  const [newPasscode, setNewPasscode] = useState('')
+
+  const syncEngine = getSyncEngine()
+  const [syncStatus, setSyncStatus] = useState<ReturnType<typeof syncEngine.getStatus>>('offline')
+  const [pendingCount, setPendingCount] = useState(0)
+  const [lastSuccessSync, setLastSuccessSync] = useState<string | null>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
 
   useEffect(() => {
     const dialog = ref.current
@@ -41,10 +50,16 @@ export function SettingsDialog({
         setBabyDob(babyProfile.profile.date_of_birth ? babyProfile.profile.date_of_birth.split('T')[0] : '')
         setBabyGender(babyProfile.profile.gender || '')
       }
+      // Update sync state
+      setSyncStatus(syncEngine.getStatus())
+      setPendingCount(syncEngine.getPendingCount())
+      setLastSuccessSync(syncEngine.getLastSuccessSyncTime())
+      const error = syncEngine.getSyncError()
+      setSyncError(error ? error.message : null)
       dialog.showModal()
     }
     if (!open && dialog.open) dialog.close()
-  }, [open, babyProfile.profile])
+  }, [open, babyProfile.profile, syncEngine])
 
   function toggleOled() {
     const next = !oled
@@ -102,12 +117,35 @@ export function SettingsDialog({
     }
   }
 
+  async function saveNewPasscode() {
+    if (newPasscode.length < 4) {
+      setMessage('Passcode must be at least 4 characters')
+      return
+    }
+    syncEngine.setPasscode(newPasscode)
+    setChangePasscode(false)
+    setNewPasscode('')
+    setMessage('Passcode updated.')
+  }
+
+  function handleChangePasscode() {
+    setChangePasscode(true)
+    setNewPasscode('')
+  }
+
+  function cancelChangePasscode() {
+    setChangePasscode(false)
+    setNewPasscode('')
+  }
+
   return (
     <dialog
       ref={ref}
       onClose={() => {
         setConfirmClear(false)
         setMessage('')
+        setChangePasscode(false)
+        setNewPasscode('')
         onClose()
       }}
       onClick={(e) => e.target === ref.current && ref.current?.close()}
@@ -131,15 +169,98 @@ export function SettingsDialog({
 
         <p className="text-xs text-muted-foreground">{version}</p>
 
-        <div className="flex items-center gap-3 rounded-2xl bg-secondary p-3 text-sm">
-          <HardDrive className="size-5 text-feed" aria-hidden />
-          <div className="flex flex-col">
-            <span className="font-medium">Saved on this device</span>
-            <span className="text-xs text-muted-foreground">
-              Data is stored locally on this phone.
-            </span>
+        {/* Sync Status Section */}
+        <div className="rounded-2xl border bg-card p-4">
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+            <Cloud className="size-4 text-sleep" aria-hidden />
+            Sync Status
+          </h3>
+          <div className="flex flex-col gap-2 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Status</span>
+              <span className={cn(
+                'font-medium',
+                syncStatus === 'synced' && 'text-green-600',
+                syncStatus === 'failed' && 'text-destructive',
+                syncStatus === 'pending' && 'text-amber-600',
+                syncStatus === 'offline' && 'text-muted-foreground'
+              )}>
+                {syncStatus.charAt(0).toUpperCase() + syncStatus.slice(1)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Pending records</span>
+              <span className="font-medium">{pendingCount}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Last successful sync</span>
+              <span className="font-medium">
+                {lastSuccessSync
+                  ? new Date(lastSuccessSync).toLocaleString()
+                  : 'Never'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Passcode</span>
+              <span className="font-medium">
+                {syncEngine.hasPasscode() ? 'Set' : 'Not set'}
+              </span>
+            </div>
+            {syncError && (
+              <div className="rounded-lg bg-destructive/10 p-3">
+                <div className="flex items-start gap-2 text-sm">
+                  <AlertCircle className="size-4 text-destructive shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium text-destructive">Last error</p>
+                    <p className="text-muted-foreground">{syncError}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={handleChangePasscode}
+              disabled={busy !== null}
+              className="flex items-center justify-center gap-2 rounded-xl bg-secondary py-2 text-sm font-medium disabled:opacity-60"
+            >
+              <Lock className="size-4" />
+              Change passcode
+            </button>
           </div>
         </div>
+
+        {changePasscode && (
+          <div className="rounded-2xl border bg-card p-4">
+            <h3 className="mb-3 text-sm font-semibold">Change Passcode</h3>
+            <div className="flex flex-col gap-3">
+              <input
+                type="password"
+                value={newPasscode}
+                onChange={(e) => setNewPasscode(e.target.value)}
+                placeholder="New passcode"
+                className="h-10 rounded-lg border bg-secondary px-3 text-sm text-foreground"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={cancelChangePasscode}
+                  disabled={busy !== null}
+                  className="flex-1 h-10 rounded-lg bg-secondary font-medium text-secondary-foreground disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveNewPasscode}
+                  disabled={busy !== null}
+                  className="flex-1 h-10 rounded-lg bg-primary font-semibold text-primary-foreground disabled:opacity-60"
+                >
+                  {busy === 'profile' ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="rounded-2xl border bg-card p-4">
           <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">

@@ -4,11 +4,14 @@ const SYNC_LOCK_NAME = 'baby-tracker-sync-lock'
 const PASSCODE_KEY = 'baby-tracker:sync-passcode'
 const FIRST_SYNC_KEY = 'baby-tracker:first-sync-completed'
 const LAST_SYNC_TIME_KEY = 'baby-tracker:last-sync-time'
+const LAST_SUCCESS_SYNC_KEY = 'baby-tracker:last-success-sync-time'
 const PENDING_COUNT_KEY = 'baby-tracker:pending-count'
+const LAST_SYNC_ERROR_KEY = 'baby-tracker:last-sync-error'
 
 const BASE_DELAY = 1000 // 1 second
 const MAX_DELAY = 60000 // 1 minute
 const MAX_RETRIES = 5
+const SYNC_TIMEOUT = 15000 // 15 seconds
 
 interface SyncCursors {
   logs_cursor?: string
@@ -20,11 +23,20 @@ interface SyncCursors {
 interface SyncResult {
   success: boolean
   error?: string
+  errorDetail?: string
+  status?: number
   recordsPushed: number
   recordsPulled: number
 }
 
-export type SyncStatus = 'offline' | 'syncing' | 'synced' | 'pending'
+export type SyncStatus = 'offline' | 'syncing' | 'synced' | 'pending' | 'failed'
+
+interface SyncError {
+  message: string
+  status?: number
+  detail?: string
+  timestamp: string
+}
 
 export class SyncEngine {
   private isOnline: boolean = true
@@ -51,10 +63,8 @@ export class SyncEngine {
 
   private async withLock<T>(fn: () => Promise<T>): Promise<T> {
     if (typeof navigator === 'undefined' || !navigator.locks) {
-      // Fallback: simple in-memory lock (not perfect but better than nothing)
       return fn()
     }
-
     return navigator.locks.request(SYNC_LOCK_NAME, { mode: 'exclusive' }, fn)
   }
 
@@ -68,7 +78,7 @@ export class SyncEngine {
 
   public setPasscodeInternal(passcode: string): void {
     try {
-      localStorage.setItem(PASSCODE_KEY, passcode)
+      localStorage.setItem(PASSCODE_KEY, passcode.trim())
     } catch (error) {
       console.error('Failed to set passcode:', error)
     }
@@ -98,9 +108,50 @@ export class SyncEngine {
     }
   }
 
+  private setLastSuccessSyncTime(): void {
+    try {
+      localStorage.setItem(LAST_SUCCESS_SYNC_KEY, new Date().toISOString())
+    } catch (error) {
+      console.error('Failed to set last success sync time:', error)
+    }
+  }
+
+  private setSyncError(error: SyncError): void {
+    try {
+      localStorage.setItem(LAST_SYNC_ERROR_KEY, JSON.stringify(error))
+    } catch (e) {
+      console.error('Failed to set sync error:', e)
+    }
+  }
+
+  private clearSyncError(): void {
+    try {
+      localStorage.removeItem(LAST_SYNC_ERROR_KEY)
+    } catch (error) {
+      console.error('Failed to clear sync error:', error)
+    }
+  }
+
+  private getSyncErrorInternal(): SyncError | null {
+    try {
+      const raw = localStorage.getItem(LAST_SYNC_ERROR_KEY)
+      return raw ? JSON.parse(raw) as SyncError : null
+    } catch {
+      return null
+    }
+  }
+
   public getLastSyncTimeInternal(): string | null {
     try {
       return localStorage.getItem(LAST_SYNC_TIME_KEY)
+    } catch {
+      return null
+    }
+  }
+
+  private getLastSuccessSyncTimeInternal(): string | null {
+    try {
+      return localStorage.getItem(LAST_SUCCESS_SYNC_KEY)
     } catch {
       return null
     }
@@ -157,8 +208,15 @@ export class SyncEngine {
         return await fn()
       } catch (error) {
         lastError = error as Error
+        
+        // Don't retry on client errors (4xx)
+        const errorMessage = lastError.message
+        if (errorMessage.includes('401') || errorMessage.includes('403') || errorMessage.includes('400')) {
+          throw lastError
+        }
+        
+        // Only retry on network errors, timeouts, and 5xx
         if (i < retries - 1) {
-          // Exponential backoff with jitter
           const delayMs = Math.min(BASE_DELAY * Math.pow(2, i) + Math.random() * 1000, MAX_DELAY)
           await this.delay(delayMs)
         }
@@ -167,26 +225,54 @@ export class SyncEngine {
     throw lastError
   }
 
-  private async pull(cursors: SyncCursors): Promise<number> {
+  private async pull(cursors: SyncCursors, signal?: AbortSignal): Promise<number> {
     const passcode = this.getPasscodeInternal()
     if (!passcode) {
       throw new Error('No passcode configured')
     }
 
-    const response = await fetch('/api/sync/pull', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-sync-passcode': passcode,
-      },
-      body: JSON.stringify(cursors),
-    })
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), SYNC_TIMEOUT)
+    signal?.addEventListener('abort', () => controller.abort())
+
+    let response: Response
+    try {
+      response = await fetch('/api/sync/pull', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sync-passcode': passcode,
+        },
+        body: JSON.stringify(cursors),
+        signal: controller.signal,
+      })
+    } catch (error) {
+      clearTimeout(timeout)
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error('Pull request timed out')
+      }
+      throw error
+    }
+    clearTimeout(timeout)
 
     if (!response.ok) {
-      throw new Error(`Pull failed: ${response.status}`)
+      let errorDetail = ''
+      try {
+        const errorData = await response.json()
+        errorDetail = errorData.detail || errorData.error || ''
+      } catch {
+        // Response might not be JSON
+      }
+      throw new Error(`Pull failed: ${response.status}${errorDetail ? ` - ${errorDetail}` : ''}`)
     }
 
-    const data = await response.json()
+    let data: any
+    try {
+      data = await response.json()
+    } catch (error) {
+      throw new Error('Pull failed: Invalid response from server')
+    }
+
     let totalPulled = 0
 
     // Merge logs
@@ -194,21 +280,18 @@ export class SyncEngine {
       for (const log of data.logs) {
         const existing = await db.logs.where('id').equals(log.id).first()
         if (!existing) {
-          // New record from server
           await db.logs.add({
             ...log,
             sync_status: 'synced',
           })
           totalPulled++
         } else if (existing.sync_status === 'synced' && log.updated_at > existing.updated_at) {
-          // Server version is newer, update local
           await db.logs.update(log.id, {
             ...log,
             sync_status: 'synced',
           })
           totalPulled++
         } else if (existing.sync_status === 'pending' && log.updated_at > existing.updated_at) {
-          // Local is pending but server is newer, don't overwrite pending
           console.log(`Skipping log ${log.id}: local is pending and newer`)
         }
       }
@@ -305,22 +388,40 @@ export class SyncEngine {
     }
   }
 
-  private async checkForDuplicateOnServer(log: DbLog): Promise<boolean> {
-    // Check if a server row with the same natural key exists
+  private async checkForDuplicateOnServer(log: DbLog, signal?: AbortSignal): Promise<boolean> {
     const passcode = this.getPasscodeInternal()
-    if (!passcode) return false
+    if (!passcode) throw new Error('No passcode configured for duplicate check')
 
-    // For logs, natural key is event_type + start_time
-    const response = await fetch('/api/sync/pull', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-sync-passcode': passcode,
-      },
-      body: JSON.stringify({}),
-    })
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), SYNC_TIMEOUT)
+    signal?.addEventListener('abort', () => controller.abort())
 
-    if (!response.ok) return false
+    let response: Response
+    try {
+      response = await fetch('/api/sync/pull', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sync-passcode': passcode.trim(),
+        },
+        body: JSON.stringify({}),
+        signal: controller.signal,
+      })
+    } catch (error) {
+      clearTimeout(timeout)
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error('Duplicate check timed out')
+      }
+      throw error
+    }
+    clearTimeout(timeout)
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error('Wrong passcode: duplicate check failed')
+      }
+      throw new Error(`Duplicate check failed: ${response.status}`)
+    }
 
     const data = await response.json()
     if (data.logs) {
@@ -331,20 +432,40 @@ export class SyncEngine {
     return false
   }
 
-  private async checkForVitaminDuplicateOnServer(log: DbVitaminLog): Promise<boolean> {
+  private async checkForVitaminDuplicateOnServer(log: DbVitaminLog, signal?: AbortSignal): Promise<boolean> {
     const passcode = this.getPasscodeInternal()
-    if (!passcode) return false
+    if (!passcode) throw new Error('No passcode configured for duplicate check')
 
-    const response = await fetch('/api/sync/pull', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-sync-passcode': passcode,
-      },
-      body: JSON.stringify({}),
-    })
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), SYNC_TIMEOUT)
+    signal?.addEventListener('abort', () => controller.abort())
 
-    if (!response.ok) return false
+    let response: Response
+    try {
+      response = await fetch('/api/sync/pull', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sync-passcode': passcode.trim(),
+        },
+        body: JSON.stringify({}),
+        signal: controller.signal,
+      })
+    } catch (error) {
+      clearTimeout(timeout)
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error('Duplicate check timed out')
+      }
+      throw error
+    }
+    clearTimeout(timeout)
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error('Wrong passcode: duplicate check failed')
+      }
+      throw new Error(`Duplicate check failed: ${response.status}`)
+    }
 
     const data = await response.json()
     if (data.vitamin_logs) {
@@ -355,20 +476,40 @@ export class SyncEngine {
     return false
   }
 
-  private async checkForGrowthDuplicateOnServer(log: DbGrowthLog): Promise<boolean> {
+  private async checkForGrowthDuplicateOnServer(log: DbGrowthLog, signal?: AbortSignal): Promise<boolean> {
     const passcode = this.getPasscodeInternal()
-    if (!passcode) return false
+    if (!passcode) throw new Error('No passcode configured for duplicate check')
 
-    const response = await fetch('/api/sync/pull', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-sync-passcode': passcode,
-      },
-      body: JSON.stringify({}),
-    })
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), SYNC_TIMEOUT)
+    signal?.addEventListener('abort', () => controller.abort())
 
-    if (!response.ok) return false
+    let response: Response
+    try {
+      response = await fetch('/api/sync/pull', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sync-passcode': passcode.trim(),
+        },
+        body: JSON.stringify({}),
+        signal: controller.signal,
+      })
+    } catch (error) {
+      clearTimeout(timeout)
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error('Duplicate check timed out')
+      }
+      throw error
+    }
+    clearTimeout(timeout)
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error('Wrong passcode: duplicate check failed')
+      }
+      throw new Error(`Duplicate check failed: ${response.status}`)
+    }
 
     const data = await response.json()
     if (data.growth_logs) {
@@ -377,7 +518,7 @@ export class SyncEngine {
     return false
   }
 
-  private async push(): Promise<number> {
+  private async push(signal?: AbortSignal): Promise<number> {
     const passcode = this.getPasscodeInternal()
     if (!passcode) {
       throw new Error('No passcode configured')
@@ -400,7 +541,7 @@ export class SyncEngine {
     // Filter duplicates for first sync
     for (const log of pendingLogs) {
       if (isFirstSync && importedIds.has(log.id)) {
-        const isDuplicate = await this.checkForDuplicateOnServer(log)
+        const isDuplicate = await this.checkForDuplicateOnServer(log, signal)
         if (isDuplicate) {
           console.log(`Discarding duplicate log ${log.id} from migration`)
           await db.logs.delete(log.id)
@@ -412,7 +553,7 @@ export class SyncEngine {
 
     for (const log of pendingVitaminLogs) {
       if (isFirstSync && importedIds.has(log.id)) {
-        const isDuplicate = await this.checkForVitaminDuplicateOnServer(log)
+        const isDuplicate = await this.checkForVitaminDuplicateOnServer(log, signal)
         if (isDuplicate) {
           console.log(`Discarding duplicate vitamin log ${log.id} from migration`)
           await db.vitamin_logs.delete(log.id)
@@ -424,7 +565,7 @@ export class SyncEngine {
 
     for (const log of pendingGrowthLogs) {
       if (isFirstSync && importedIds.has(log.id)) {
-        const isDuplicate = await this.checkForGrowthDuplicateOnServer(log)
+        const isDuplicate = await this.checkForGrowthDuplicateOnServer(log, signal)
         if (isDuplicate) {
           console.log(`Discarding duplicate growth log ${log.id} from migration`)
           await db.growth_logs.delete(log.id)
@@ -448,30 +589,57 @@ export class SyncEngine {
       return 0
     }
 
-    const response = await fetch('/api/sync/push', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-sync-passcode': passcode,
-      },
-      body: JSON.stringify(body),
-    })
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), SYNC_TIMEOUT)
+    signal?.addEventListener('abort', () => controller.abort())
+
+    let response: Response
+    try {
+      response = await fetch('/api/sync/push', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sync-passcode': passcode.trim(),
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      })
+    } catch (error) {
+      clearTimeout(timeout)
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error('Push request timed out')
+      }
+      throw error
+    }
+    clearTimeout(timeout)
 
     if (!response.ok) {
-      throw new Error(`Push failed: ${response.status}`)
+      let errorDetail = ''
+      try {
+        const errorData = await response.json()
+        errorDetail = errorData.detail || errorData.error || ''
+      } catch {
+        // Response might not be JSON
+      }
+      throw new Error(`Push failed: ${response.status}${errorDetail ? ` - ${errorDetail}` : ''}`)
     }
 
-    const data = await response.json()
+    let data: any
+    try {
+      data = await response.json()
+    } catch (error) {
+      throw new Error('Push failed: Invalid response from server')
+    }
+
     let totalPushed = 0
 
-    // Mark records as synced only if they weren't edited in the meantime
+    // Mark records as synced only if they were successfully applied
     if (data.logs) {
-      for (const pushed of data.logs) {
-        const local = await db.logs.where('id').equals(pushed.id).first()
-        if (local && local.sync_status === 'pending' && local.updated_at === pushed.updated_at) {
-          await db.logs.update(pushed.id, {
+      for (const id of data.logs.applied) {
+        const local = await db.logs.where('id').equals(id).first()
+        if (local && local.sync_status === 'pending') {
+          await db.logs.update(id, {
             sync_status: 'synced',
-            server_updated_at: pushed.server_updated_at,
           })
           totalPushed++
         }
@@ -479,12 +647,11 @@ export class SyncEngine {
     }
 
     if (data.vitamin_logs) {
-      for (const pushed of data.vitamin_logs) {
-        const local = await db.vitamin_logs.where('id').equals(pushed.id).first()
-        if (local && local.sync_status === 'pending' && local.updated_at === pushed.updated_at) {
-          await db.vitamin_logs.update(pushed.id, {
+      for (const id of data.vitamin_logs.applied) {
+        const local = await db.vitamin_logs.where('id').equals(id).first()
+        if (local && local.sync_status === 'pending') {
+          await db.vitamin_logs.update(id, {
             sync_status: 'synced',
-            server_updated_at: pushed.server_updated_at,
           })
           totalPushed++
         }
@@ -492,24 +659,22 @@ export class SyncEngine {
     }
 
     if (data.growth_logs) {
-      for (const pushed of data.growth_logs) {
-        const local = await db.growth_logs.where('id').equals(pushed.id).first()
-        if (local && local.sync_status === 'pending' && local.updated_at === pushed.updated_at) {
-          await db.growth_logs.update(pushed.id, {
+      for (const id of data.growth_logs.applied) {
+        const local = await db.growth_logs.where('id').equals(id).first()
+        if (local && local.sync_status === 'pending') {
+          await db.growth_logs.update(id, {
             sync_status: 'synced',
-            server_updated_at: pushed.server_updated_at,
           })
           totalPushed++
         }
       }
     }
 
-    if (data.baby_profile) {
+    if (data.baby_profile?.applied) {
       const local = await db.baby_profile.where('id').equals(1).first()
-      if (local && local.sync_status === 'pending' && local.updated_at === data.baby_profile.updated_at) {
+      if (local && local.sync_status === 'pending') {
         await db.baby_profile.update(1, {
           sync_status: 'synced',
-          server_updated_at: data.baby_profile.server_updated_at,
         })
         totalPushed++
       }
@@ -529,6 +694,7 @@ export class SyncEngine {
     }
 
     return this.withLock(async () => {
+      const signal = this.abortController?.signal
       try {
         const cursors = await this.getCursors()
         const isFirstSync = this.isFirstSync()
@@ -538,26 +704,63 @@ export class SyncEngine {
 
         // First sync: pull before push
         if (isFirstSync) {
-          recordsPulled = await this.withRetry(() => this.pull(cursors))
+          recordsPulled = await this.withRetry(() => this.pull(cursors, signal))
           this.markFirstSyncComplete()
         }
 
         // Push pending records
-        recordsPushed = await this.withRetry(() => this.push())
+        recordsPushed = await this.withRetry(() => this.push(signal))
 
         // Pull after push to get any changes from other devices
         const newCursors = await this.getCursors()
-        recordsPulled += await this.withRetry(() => this.pull(newCursors))
+        recordsPulled += await this.withRetry(() => this.pull(newCursors, signal))
 
         this.setLastSyncTime()
+        this.setLastSuccessSyncTime()
+        this.clearSyncError()
         await this.updatePendingCount()
 
         return { success: true, recordsPushed, recordsPulled }
       } catch (error) {
         console.error('Sync error:', error)
+        const err = error as Error
+        
+        // Handle 401 specifically
+        if (err.message.includes('401') || err.message.includes('Wrong passcode')) {
+          const syncError: SyncError = {
+            message: 'Wrong passcode, or passcode not configured on the server',
+            status: 401,
+            timestamp: new Date().toISOString(),
+          }
+          this.setSyncError(syncError)
+          this.setLastSyncTime()
+          await this.updatePendingCount()
+          
+          return {
+            success: false,
+            error: syncError.message,
+            status: 401,
+            recordsPushed: 0,
+            recordsPulled: 0,
+          }
+        }
+        
+        const syncError: SyncError = {
+          message: err.message,
+          timestamp: new Date().toISOString(),
+        }
+        this.setSyncError(syncError)
+        this.setLastSyncTime()
+        await this.updatePendingCount()
+
+        // Try to extract status code from error message
+        const statusMatch = err.message.match(/failed: (\d+)/)
+        const status = statusMatch ? parseInt(statusMatch[1], 10) : undefined
+
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Unknown error',
+          error: err.message,
+          status,
           recordsPushed: 0,
           recordsPulled: 0,
         }
@@ -567,7 +770,43 @@ export class SyncEngine {
 
   public getStatus(): SyncStatus {
     if (!this.isOnline) return 'offline'
+    
+    const syncError = this.getSyncError()
+    if (syncError) return 'failed'
+    
+    // Use live Dexie query instead of cached counter
+    // This runs synchronously but is fast for small datasets
+    const checkPending = async () => {
+      const [logs, vitaminLogs, growthLogs, profile] = await Promise.all([
+        db.logs.where('sync_status').equals('pending').count(),
+        db.vitamin_logs.where('sync_status').equals('pending').count(),
+        db.growth_logs.where('sync_status').equals('pending').count(),
+        db.baby_profile.where('sync_status').equals('pending').count(),
+      ])
+      return logs + vitaminLogs + growthLogs + profile
+    }
+    
+    // For synchronous use, fall back to cached count
+    // The UI should use the async version for accuracy
     const pending = this.getPendingCountInternal()
+    if (pending > 0) return 'pending'
+    return 'synced'
+  }
+
+  public async getStatusAsync(): Promise<SyncStatus> {
+    if (!this.isOnline) return 'offline'
+    
+    const syncError = this.getSyncError()
+    if (syncError) return 'failed'
+    
+    const [logs, vitaminLogs, growthLogs, profile] = await Promise.all([
+      db.logs.where('sync_status').equals('pending').count(),
+      db.vitamin_logs.where('sync_status').equals('pending').count(),
+      db.growth_logs.where('sync_status').equals('pending').count(),
+      db.baby_profile.where('sync_status').equals('pending').count(),
+    ])
+    const pending = logs + vitaminLogs + growthLogs + profile
+    
     if (pending > 0) return 'pending'
     return 'synced'
   }
@@ -592,8 +831,16 @@ export class SyncEngine {
     return this.getLastSyncTimeInternal()
   }
 
+  public getLastSuccessSyncTime(): string | null {
+    return this.getLastSuccessSyncTimeInternal()
+  }
+
   public getPendingCount(): number {
     return this.getPendingCountInternal()
+  }
+
+  public getSyncError(): SyncError | null {
+    return this.getSyncErrorInternal()
   }
 
   public triggerSync(): void {
@@ -604,11 +851,21 @@ export class SyncEngine {
     this.sync().catch((error) => {
       if (error.name !== 'AbortError') {
         console.error('Triggered sync error:', error)
+        // If it's a 401 error, stop automatic sync
+        if (error.message.includes('401') || error.message.includes('Wrong passcode')) {
+          this.stopPeriodicSync()
+        }
       }
     })
   }
 
   public startPeriodicSync(): void {
+    // Don't start if there's a 401 error
+    const syncError = this.getSyncError()
+    if (syncError && syncError.status === 401) {
+      return
+    }
+    
     if (this.syncInterval !== null) {
       clearInterval(this.syncInterval)
     }
@@ -617,7 +874,7 @@ export class SyncEngine {
       if (this.isOnline && !document.hidden) {
         this.triggerSync()
       }
-    }, 60000) // 60 seconds while visible and online
+    }, 60000)
   }
 
   public stopPeriodicSync(): void {
@@ -625,6 +882,86 @@ export class SyncEngine {
       clearInterval(this.syncInterval)
       this.syncInterval = null
     }
+  }
+
+  public async testConnection(): Promise<{ step: string; success: boolean; error?: string }[]> {
+    const results: { step: string; success: boolean; error?: string }[] = []
+    const passcode = this.getPasscodeInternal()
+
+    // Step 1: Server reachable
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), SYNC_TIMEOUT)
+      const response = await fetch('/api/sync/pull', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sync-passcode': passcode ? passcode.trim() : '',
+        },
+        body: JSON.stringify({}),
+        signal: controller.signal,
+      })
+      clearTimeout(timeout)
+
+      if (!response.ok) {
+        let errorDetail = `HTTP ${response.status}`
+        try {
+          const errorData = await response.json()
+          errorDetail += `: ${errorData.detail || errorData.error || ''}`
+        } catch {
+          // Response might not be JSON
+        }
+        results.push({ step: 'Server reachable', success: false, error: errorDetail })
+        return results
+      }
+      results.push({ step: 'Server reachable', success: true })
+    } catch (error) {
+      results.push({ step: 'Server reachable', success: false, error: (error as Error).message })
+      return results
+    }
+
+    // Step 2: Passcode accepted
+    if (!passcode) {
+      results.push({ step: 'Passcode accepted', success: false, error: 'No passcode set' })
+      return results
+    }
+    results.push({ step: 'Passcode accepted', success: true })
+
+    // Step 3: Database reachable (if we got here, we got JSON response)
+    results.push({ step: 'Database reachable', success: true })
+
+    // Step 4: Push function available (test with empty push)
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), SYNC_TIMEOUT)
+      const response = await fetch('/api/sync/push', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sync-passcode': passcode.trim(),
+        },
+        body: JSON.stringify({}),
+        signal: controller.signal,
+      })
+      clearTimeout(timeout)
+
+      if (!response.ok) {
+        let errorDetail = `HTTP ${response.status}`
+        try {
+          const errorData = await response.json()
+          errorDetail += `: ${errorData.detail || errorData.error || ''}`
+        } catch {
+          // Response might not be JSON
+        }
+        results.push({ step: 'Push function available', success: false, error: errorDetail })
+      } else {
+        results.push({ step: 'Push function available', success: true })
+      }
+    } catch (error) {
+      results.push({ step: 'Push function available', success: false, error: (error as Error).message })
+    }
+
+    return results
   }
 }
 

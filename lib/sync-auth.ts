@@ -13,14 +13,18 @@ export function checkSyncPasscode(request: Request): boolean {
     return false
   }
 
+  // Trim both sides before comparison
+  const trimmedPasscode = passcode.trim()
+  const trimmedExpected = expected.trim()
+
   // Constant-time comparison to prevent timing attacks
-  if (passcode.length !== expected.length) {
+  if (trimmedPasscode.length !== trimmedExpected.length) {
     return false
   }
 
   let result = 0
-  for (let i = 0; i < passcode.length; i++) {
-    result |= passcode.charCodeAt(i) ^ expected.charCodeAt(i)
+  for (let i = 0; i < trimmedPasscode.length; i++) {
+    result |= trimmedPasscode.charCodeAt(i) ^ trimmedExpected.charCodeAt(i)
   }
 
   return result === 0
