@@ -1,6 +1,7 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
+import { MigrationProvider } from '@/components/migration-provider'
 import './globals.css'
 
 const geistSans = Geist({ subsets: ['latin'], variable: '--font-geist-sans' })
@@ -39,6 +40,14 @@ const serviceWorkerScript = `if ('serviceWorker' in navigator) {
   });
 }`
 
+const storagePersistScript = `if ('storage' in navigator && navigator.storage.persist) {
+  navigator.storage.persist().then((persisted) => {
+    console.log('Storage persisted:', persisted);
+  }).catch((err) => {
+    console.log('Storage persist failed:', err);
+  });
+}`
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -49,11 +58,14 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <script dangerouslySetInnerHTML={{ __html: serviceWorkerScript }} />
+        <script dangerouslySetInnerHTML={{ __html: storagePersistScript }} />
         <link rel="icon" href="/icon.svg" type="image/svg+xml" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.svg" type="image/svg+xml" />
       </head>
       <body className="antialiased">
-        {children}
+        <MigrationProvider>
+          {children}
+        </MigrationProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Check, X, Pencil, AlertCircle, WifiOff } from 'lucide-react'
+import { Check, X, Pencil, AlertCircle, CloudOff } from 'lucide-react'
 import { useNow } from '@/hooks/use-now'
 import type { VitaminLogsApi } from '@/hooks/use-vitamin-logs'
 import { formatClock, startOfDay } from '@/lib/time'
@@ -40,12 +40,7 @@ export function VitaminControl({ api }: { api: VitaminLogsApi }) {
     if (!todayLog) return
     setBusy(true)
     try {
-      // Delete from localStorage immediately
-      const local = api.logs.filter((l) => l.id !== todayLog.id)
-      localStorage.setItem('baby-tracker:vitamin-logs', JSON.stringify(local))
-
-      // Try to delete from Supabase directly
-      await api.deleteVitaminLog(todayLog.id, todayLog.given_date)
+      await api.deleteVitaminLog(todayLog.id)
     } finally {
       setBusy(false)
     }
@@ -70,7 +65,11 @@ export function VitaminControl({ api }: { api: VitaminLogsApi }) {
   }
 
   if (todayLog) {
-    const pendingSync = isVitaminLogPendingSync(todayLog.id)
+    const [pendingSync, setPendingSync] = useState(false)
+    useEffect(() => {
+      isVitaminLogPendingSync(todayLog.id).then(setPendingSync)
+    }, [todayLog.id])
+
     return (
       <section aria-labelledby="vitamin-heading" className="flex flex-col gap-3 rounded-3xl border border-green-500/40 bg-green-500/10 p-4">
         <div className="flex items-center justify-between">
@@ -79,12 +78,7 @@ export function VitaminControl({ api }: { api: VitaminLogsApi }) {
             Vitamin Drops: Given Today
           </h2>
           <div className="flex items-center gap-2">
-            {pendingSync && (
-              <span className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600">
-                <WifiOff className="size-3" aria-hidden />
-                <span>Offline</span>
-              </span>
-            )}
+            {pendingSync && <CloudOff className="size-4 text-muted-foreground" aria-label="Pending sync" />}
             <button
               type="button"
               onClick={() => setEditOpen(true)}

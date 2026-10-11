@@ -1,109 +1,46 @@
 'use client'
 
-import { useState } from 'react'
-import useSWR from 'swr'
+import { useLiveQuery } from 'dexie-react-hooks'
 import type { BabyProfile } from '@/lib/types'
-import { addToSyncQueue } from '@/lib/sync-queue'
+import { db, getDeviceIdSync, type DbBabyProfile } from '@/lib/db'
 
-const LOCAL_KEY = 'baby-tracker:baby-profile'
-
-function readLocal(): BabyProfile | null {
-  try {
-    const raw = localStorage.getItem(LOCAL_KEY)
-    return raw ? (JSON.parse(raw) as BabyProfile) : null
-  } catch {
-    return null
-  }
-}
-
-function writeLocal(profile: BabyProfile) {
-  localStorage.setItem(LOCAL_KEY, JSON.stringify(profile))
-}
-
-async function fetchBabyProfile(): Promise<BabyProfile | null> {
-  // Initialize from localStorage first
-  const localProfile = readLocal()
-
-  try {
-    const res = await fetch('/api/baby-profile', { cache: 'no-store' })
-    if (!res.ok) {
-      console.error('Failed to fetch baby profile from cloud, using local storage')
-      return localProfile
-    }
-    const data = (await res.json()) as BabyProfile
-    // If cloud returns empty or fails, use local data
-    if (!data || (!data.name && !data.date_of_birth)) {
-      return localProfile
-    }
-    return data
-  } catch (error) {
-    console.error('Failed to fetch baby profile from cloud, using local storage:', error)
-    return localProfile
-  }
-}
-
-async function request(url: string, init: RequestInit) {
-  try {
-    const res = await fetch(url, {
-      ...init,
-      headers: { 'Content-Type': 'application/json', ...init.headers },
-    })
-    if (!res.ok) {
-      const errorText = await res.text()
-      throw new Error(`Request failed: ${res.status} - ${errorText}`)
-    }
-    return res
-  } catch (error) {
-    console.error('Request failed:', error)
-    throw error
+function dbToBabyProfile(dbProfile: DbBabyProfile | undefined): BabyProfile | null {
+  if (!dbProfile) return null
+  return {
+    name: dbProfile.name,
+    date_of_birth: dbProfile.date_of_birth,
+    gender: dbProfile.gender,
   }
 }
 
 export function useBabyProfile() {
-  const { data, error, isLoading, mutate } = useSWR<BabyProfile | null>('baby-profile', fetchBabyProfile, {
-    refreshInterval: 60_000,
-    revalidateOnFocus: true,
-  })
-
-  const profile = data ?? null
-  const [syncError, setSyncError] = useState<string | null>(null)
+  const profile = useLiveQuery(
+    () => db.baby_profile.get(1).then(dbToBabyProfile),
+    [],
+    null
+  )
 
   async function updateProfile(profile: BabyProfile) {
-    // Save to localStorage immediately (local-first)
-    writeLocal(profile)
+    const now = new Date().toISOString()
 
-    await mutate(
-      async () => {
-        try {
-          const res = await request('/api/baby-profile', { method: 'POST', body: JSON.stringify(profile) })
-          const saved = (await res.json()) as BabyProfile
-          setSyncError(null)
-          // Update localStorage with server response
-          writeLocal(saved)
-          return saved
-        } catch (error) {
-          console.error('Failed to update baby profile on cloud, using local storage:', error)
-          setSyncError('Saved locally - will sync when online')
-          // Add to sync queue with new format
-          addToSyncQueue({
-            type: 'update_profile',
-            endpoint: '/api/baby-profile',
-            payload: profile,
-            action: 'POST',
-          })
-          // Data already saved locally above
-          return profile
-        }
-      },
+    await db.baby_profile.put(
       {
-        optimisticData: profile,
-        rollbackOnError: true,
-        revalidate: false,
+        id: 1,
+        name: profile.name,
+        date_of_birth: profile.date_of_birth,
+        gender: profile.gender,
+        updated_at: now,
+        deleted_at: null,
+        device_id: getDeviceIdSync(),
+        user_id: null,
+        server_updated_at: null,
+        sync_status: 'pending',
       },
+      1
     )
   }
 
-  return { profile, error, isLoading, updateProfile, syncError, mutate }
+  return { profile: profile ?? null, error: null, isLoading: false, updateProfile, syncError: null, mutate: () => {} }
 }
 
 export type BabyProfileApi = ReturnType<typeof useBabyProfile>

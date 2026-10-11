@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { Baby, Ruler, Scale, Plus, Pencil, Trash2, X, WifiOff } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Baby, Ruler, Scale, Plus, Pencil, Trash2, X, CloudOff } from 'lucide-react'
 import type { GrowthLogsApi } from '@/hooks/use-growth-logs'
 import type { GrowthLog } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -192,7 +192,11 @@ function GrowthLogRow({ log, onEdit, onDelete }: { log: GrowthLog; onEdit: () =>
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
   }
-  const pendingSync = isGrowthLogPendingSync(log.id)
+  const [pendingSync, setPendingSync] = useState(false)
+
+  useEffect(() => {
+    isGrowthLogPendingSync(log.id).then(setPendingSync)
+  }, [log.id])
 
   return (
     <li className="flex items-center gap-3 px-3 py-3">
@@ -219,12 +223,7 @@ function GrowthLogRow({ log, onEdit, onDelete }: { log: GrowthLog; onEdit: () =>
           )}
         </div>
       </div>
-      {pendingSync && (
-        <span className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600">
-          <WifiOff className="size-3" aria-hidden />
-          <span>Offline</span>
-        </span>
-      )}
+      {pendingSync && <CloudOff className="size-4 text-muted-foreground" aria-label="Pending sync" />}
       <button
         type="button"
         onClick={onEdit}
