@@ -1,17 +1,17 @@
-// Sync queue stub - sync engine to be implemented later
-// All sync state is now tracked in IndexedDB via sync_status field
+import { db } from './db'
 
-// Stub functions for compatibility - will be replaced by sync engine
-export function isLogPendingSync(_logId: string): boolean {
-  return false // TODO: read from db.sync_status when sync engine is built
+export async function isLogPendingSync(logId: string): Promise<boolean> {
+  const log = await db.logs.where('id').equals(logId).first()
+  return log?.sync_status === 'pending' ?? false
 }
 
-export function isVitaminLogPendingSync(_logId: string): boolean {
-  return false // TODO: read from db.sync_status when sync engine is built
+export async function isVitaminLogPendingSync(logId: string): Promise<boolean> {
+  const log = await db.vitamin_logs.where('id').equals(logId).first()
+  return log?.sync_status === 'pending' ?? false
 }
 
-export function isGrowthLogPendingSync(_logId: string): boolean {
-  return false // TODO: read from db.sync_status when sync engine is built
+export async function isGrowthLogPendingSync(logId: string): Promise<boolean> {
+  const log = await db.growth_logs.where('id').equals(logId).first()
+  return log?.sync_status === 'pending' ?? false
 }
-
 

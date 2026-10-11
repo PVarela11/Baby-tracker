@@ -7,6 +7,7 @@ import type { VitaminLogsApi } from '@/hooks/use-vitamin-logs'
 import { formatClock, startOfDay } from '@/lib/time'
 import type { VitaminLog } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { isVitaminLogPendingSync } from '@/lib/sync-queue'
 
 export function VitaminControl({ api }: { api: VitaminLogsApi }) {
   const now = useNow(60_000)
@@ -64,8 +65,11 @@ export function VitaminControl({ api }: { api: VitaminLogsApi }) {
   }
 
   if (todayLog) {
-    // const pendingSync = isVitaminLogPendingSync(todayLog.id)
-    const pendingSync = false // TODO: read from db.sync_status when sync engine is built
+    const [pendingSync, setPendingSync] = useState(false)
+    useEffect(() => {
+      isVitaminLogPendingSync(todayLog.id).then(setPendingSync)
+    }, [todayLog.id])
+
     return (
       <section aria-labelledby="vitamin-heading" className="flex flex-col gap-3 rounded-3xl border border-green-500/40 bg-green-500/10 p-4">
         <div className="flex items-center justify-between">

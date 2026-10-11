@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Droplets, Milk, Moon, Trash2, Pencil, X, WifiOff } from 'lucide-react'
 import { useNow } from '@/hooks/use-now'
 import type { LogsApi } from '@/hooks/use-logs'
@@ -234,7 +234,12 @@ function LogRow({ log, now, onEdit, onDelete }: { log: Log; now: number; onEdit:
   const meta = META[log.event_type]
   const Icon = meta.icon
   const running = log.event_type !== 'diaper' && !log.end_time
-  const pendingSync = isLogPendingSync(log.id)
+  const [pendingSync, setPendingSync] = useState(false)
+
+  useEffect(() => {
+    isLogPendingSync(log.id).then(setPendingSync)
+  }, [log.id])
+
   const detail =
     log.event_type === 'diaper'
       ? log.diaper_type

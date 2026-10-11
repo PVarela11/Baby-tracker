@@ -265,6 +265,10 @@ export async function runMigration(): Promise<void> {
     await migrateBabyProfile()
     await migrateSyncQueue()
 
+    // Save imported IDs for first-sync duplicate detection
+    const allImportedIds = [...logsIds, ...vitaminIds, ...growthIds]
+    await db.meta.put({ key: 'migration:imported_ids', value: JSON.stringify(allImportedIds) })
+
     // Verify migration by checking that all imported IDs exist in Dexie
     const logsVerified = await db.logs.bulkGet(logsIds)
     const vitaminVerified = await db.vitamin_logs.bulkGet(vitaminIds)

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Baby, Ruler, Scale, Plus, Pencil, Trash2, X, WifiOff } from 'lucide-react'
 import type { GrowthLogsApi } from '@/hooks/use-growth-logs'
 import type { GrowthLog } from '@/lib/types'
@@ -192,7 +192,11 @@ function GrowthLogRow({ log, onEdit, onDelete }: { log: GrowthLog; onEdit: () =>
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
   }
-  const pendingSync = isGrowthLogPendingSync(log.id)
+  const [pendingSync, setPendingSync] = useState(false)
+
+  useEffect(() => {
+    isGrowthLogPendingSync(log.id).then(setPendingSync)
+  }, [log.id])
 
   return (
     <li className="flex items-center gap-3 px-3 py-3">
